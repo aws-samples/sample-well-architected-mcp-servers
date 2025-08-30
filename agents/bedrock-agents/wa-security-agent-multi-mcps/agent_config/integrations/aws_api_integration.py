@@ -17,23 +17,16 @@
 
 """
 AWS API MCP Server Integration
-Handler for AWS API MCP Server providing detailed resource analysis and remediation capabilities
-Integrates with Bedrock Core Runtime for MCP server communication
+Handler for AWS API MCP Server providing AWS CLI command execution and suggestions
+Uses the actual MCP tools: call_aws and suggest_aws_commands
 """
 
-import asyncio
 import json
-import re
 import time
-import boto3
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from enum import Enum
 
 try:
-    from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
     from agent_config.interfaces import AWSAPIIntegration, ToolResult
     from agent_config.utils.logging_utils import get_logger
     from agent_config.utils.error_handling import ErrorHandler
@@ -42,26 +35,41 @@ except ImportError:
     from abc import ABC, abstractmethod
     from typing import Dict, List, Any
     import logging
-    
+
     class AWSAPIIntegration(ABC):
         @abstractmethod
-        async def get_detailed_resource_config(self, resource_arn: str) -> Dict[str, Any]:
+        async def suggest_aws_commands(self, query: str) -> Dict[str, Any]:
             pass
-        
+
         @abstractmethod
-        async def analyze_service_configuration(self, service_name: str, region: str) -> Dict[str, Any]:
+        async def execute_aws_command(
+            self, cli_command: str, max_results: Optional[int] = None
+        ) -> Dict[str, Any]:
             pass
-        
+
         @abstractmethod
-        async def execute_remediation_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        async def validate_permissions(
+            self, required_permissions: List[str]
+        ) -> Dict[str, Any]:
             pass
-        
+
         @abstractmethod
-        async def validate_permissions(self, required_permissions: List[str]) -> Dict[str, Any]:
+        async def get_resource_details(
+            self, resource_type: str, resource_id: str, region: str = "us-east-1"
+        ) -> Dict[str, Any]:
             pass
-    
+
     class ToolResult:
-        def __init__(self, tool_name, mcp_server, success, data, error_message=None, execution_time=0.0, metadata=None):
+        def __init__(
+            self,
+            tool_name,
+            mcp_server,
+            success,
+            data,
+            error_message=None,
+            execution_time=0.0,
+            metadata=None,
+        ):
             self.tool_name = tool_name
             self.mcp_server = mcp_server
             self.success = success
@@ -69,1271 +77,569 @@ except ImportError:
             self.error_message = error_message
             self.execution_time = execution_time
             self.metadata = metadata or {}
-    
+
     def get_logger(name):
         return logging.getLogger(name)
-    
+
     class ErrorHandler:
         pass
-    
-    # Mock MCP classes for standalone testing
-    class ClientSession:
-        def __init__(self, read_stream, write_stream):
-            pass
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            pass
-        async def initialize(self):
-            pass
-        async def call_tool(self, name, arguments):
-            class MockResult:
-                def __init__(self):
-                    self.content = [{"text": json.dumps({"test": "data"})}]
-            return MockResult()
-    
-    def streamablehttp_client(url, headers, timeout):
-        class MockClient:
-            async def __aenter__(self):
-                return None, None, None
-            async def __aexit__(self, exc_type, exc_val, exc_tb):
-                pass
-        return MockClient()
+
 
 logger = get_logger(__name__)
 
 
-class RemediationActionType(Enum):
-    """Types of remediation actions supported"""
-    ENABLE_ENCRYPTION = "enable_encryption"
-    UPDATE_SECURITY_GROUP = "update_security_group"
-    ENABLE_LOGGING = "enable_logging"
-    UPDATE_IAM_POLICY = "update_iam_policy"
-    ENABLE_MFA = "enable_mfa"
-    UPDATE_BUCKET_POLICY = "update_bucket_policy"
-    ENABLE_VERSIONING = "enable_versioning"
-    UPDATE_ACCESS_CONTROL = "update_access_control"
-
-
-class PermissionValidationResult(Enum):
-    """Results of permission validation"""
-    GRANTED = "granted"
-    DENIED = "denied"
-    PARTIAL = "partial"
-    UNKNOWN = "unknown"
-
-
 @dataclass
-class ResourceConfig:
-    """Represents detailed AWS resource configuration"""
-    resource_arn: str
-    resource_type: str
-    service: str
-    region: str
-    configuration: Dict[str, Any]
-    security_attributes: Dict[str, Any]
-    compliance_status: Dict[str, Any]
-    last_modified: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
+class AWSCommand:
+    """Represents an AWS CLI command suggestion"""
 
-
-@dataclass
-class ServiceAnalysis:
-    """Represents comprehensive service configuration analysis"""
-    service_name: str
-    region: str
-    resources: List[ResourceConfig]
-    security_findings: List[Dict[str, Any]]
-    compliance_gaps: List[Dict[str, Any]]
-    recommendations: List[Dict[str, Any]]
-    overall_security_score: float
-    analysis_timestamp: str
-
-
-@dataclass
-class RemediationAction:
-    """Represents an automated remediation action"""
-    action_id: str
-    action_type: RemediationActionType
-    target_resource: str
+    command: str
+    confidence: float
     description: str
-    parameters: Dict[str, Any]
-    safety_checks: List[str]
-    rollback_plan: Optional[Dict[str, Any]] = None
-    estimated_impact: str = "low"
-    requires_approval: bool = True
+    required_parameters: List[str]
+    example: str
 
 
 @dataclass
-class ActionResult:
-    """Result of executing a remediation action"""
-    action_id: str
+class CommandResult:
+    """Result from AWS CLI command execution"""
+
+    command: str
     success: bool
-    message: str
-    changes_made: List[Dict[str, Any]]
-    rollback_info: Optional[Dict[str, Any]] = None
+    output: Any
+    error_message: Optional[str] = None
     execution_time: float = 0.0
-    warnings: List[str] = None
-
-
-@dataclass
-class PermissionStatus:
-    """Status of permission validation"""
-    overall_status: PermissionValidationResult
-    permission_details: Dict[str, Dict[str, Any]]
-    missing_permissions: List[str]
-    recommendations: List[str]
-    validation_timestamp: str
 
 
 class AWSAPIIntegrationImpl(AWSAPIIntegration):
     """
-    Implementation of AWS API MCP Server integration via Bedrock Core Runtime
-    Provides detailed resource analysis, service configuration analysis, and automated remediation
+    Implementation of AWS API MCP Server integration
+    Routes to actual MCP tools: suggest_aws_commands and call_aws
     """
-    
-    def __init__(self, region: str = "us-east-1", cache_ttl: int = 1800):
+
+    def __init__(self, mcp_orchestrator, region: str = "us-east-1"):
         """
         Initialize AWS API integration
-        
+
         Args:
-            region: AWS region for the integration
-            cache_ttl: Cache time-to-live in seconds (default: 30 minutes)
+            mcp_orchestrator: The MCP orchestrator for calling tools
+            region: Default AWS region
         """
+        self.mcp_orchestrator = mcp_orchestrator
         self.region = region
         self.error_handler = ErrorHandler()
-        self.cache_ttl = cache_ttl
-        self._resource_cache = {}
-        self._service_cache = {}
-        self._permission_cache = {}
-        
-        # Bedrock Core Runtime connection details
-        self.mcp_url = None
-        self.mcp_headers = None
-        self.is_initialized = False
-        
-        # AWS service to resource type mappings
-        self.service_resource_mappings = {
-            's3': ['AWS::S3::Bucket', 'AWS::S3::BucketPolicy'],
-            'ec2': ['AWS::EC2::Instance', 'AWS::EC2::SecurityGroup', 'AWS::EC2::Volume'],
-            'rds': ['AWS::RDS::DBInstance', 'AWS::RDS::DBCluster', 'AWS::RDS::DBSubnetGroup'],
-            'lambda': ['AWS::Lambda::Function', 'AWS::Lambda::LayerVersion'],
-            'iam': ['AWS::IAM::Role', 'AWS::IAM::Policy', 'AWS::IAM::User'],
-            'vpc': ['AWS::EC2::VPC', 'AWS::EC2::Subnet', 'AWS::EC2::RouteTable'],
-            'kms': ['AWS::KMS::Key', 'AWS::KMS::Alias'],
-            'cloudtrail': ['AWS::CloudTrail::Trail'],
-            'cloudwatch': ['AWS::CloudWatch::Alarm', 'AWS::Logs::LogGroup']
-        }
-        
-        # Security-critical attributes by service
-        self.security_attributes = {
-            's3': ['PublicAccessBlock', 'BucketEncryption', 'BucketVersioning', 'BucketLogging'],
-            'ec2': ['SecurityGroups', 'IamInstanceProfile', 'EbsOptimized', 'Monitoring'],
-            'rds': ['StorageEncrypted', 'VpcSecurityGroups', 'BackupRetentionPeriod', 'MultiAZ'],
-            'lambda': ['Environment', 'VpcConfig', 'DeadLetterConfig', 'TracingConfig'],
-            'iam': ['AssumeRolePolicyDocument', 'ManagedPolicyArns', 'MaxSessionDuration'],
-            'kms': ['KeyPolicy', 'KeyRotationEnabled', 'KeyUsage', 'KeySpec']
-        }
-        
-        # Common remediation actions by service
-        self.remediation_templates = {
-            's3': {
-                'enable_encryption': {
-                    'description': 'Enable default encryption for S3 bucket',
-                    'api_call': 'put_bucket_encryption',
-                    'safety_checks': ['verify_bucket_exists', 'check_existing_encryption']
-                },
-                'block_public_access': {
-                    'description': 'Enable S3 bucket public access block',
-                    'api_call': 'put_public_access_block',
-                    'safety_checks': ['verify_bucket_exists', 'check_current_policy']
-                }
+
+        # Common AWS CLI patterns for different operations
+        self.operation_patterns = {
+            "list_resources": {
+                "s3": "aws s3api list-buckets",
+                "ec2": "aws ec2 describe-instances",
+                "rds": "aws rds describe-db-instances",
+                "lambda": "aws lambda list-functions",
+                "iam": "aws iam list-users",
             },
-            'ec2': {
-                'update_security_group': {
-                    'description': 'Update EC2 security group rules',
-                    'api_call': 'authorize_security_group_ingress',
-                    'safety_checks': ['verify_sg_exists', 'validate_rules']
-                },
-                'enable_detailed_monitoring': {
-                    'description': 'Enable detailed monitoring for EC2 instance',
-                    'api_call': 'monitor_instances',
-                    'safety_checks': ['verify_instance_exists', 'check_monitoring_status']
-                }
+            "describe_resource": {
+                "s3": "aws s3api get-bucket-{attribute} --bucket {resource_id}",
+                "ec2": "aws ec2 describe-instances --instance-ids {resource_id}",
+                "rds": "aws rds describe-db-instances --db-instance-identifier {resource_id}",
+                "lambda": "aws lambda get-function --function-name {resource_id}",
+                "iam": "aws iam get-user --user-name {resource_id}",
             },
-            'rds': {
-                'enable_encryption': {
-                    'description': 'Enable encryption for RDS instance',
-                    'api_call': 'modify_db_instance',
-                    'safety_checks': ['verify_instance_exists', 'check_encryption_support']
-                }
-            }
         }
-        
+
         logger.info(f"AWS API Integration initialized for region: {self.region}")
-    
-    async def initialize(self) -> bool:
-        """Initialize connection to AWS API MCP Server via Bedrock Core Runtime"""
-        try:
-            logger.info("Initializing AWS API MCP Server connection via Bedrock Core Runtime...")
-            
-            # Get MCP server credentials from AgentCore deployment
-            ssm_client = boto3.client('ssm', region_name=self.region)
-            secrets_client = boto3.client('secretsmanager', region_name=self.region)
-            
-            try:
-                # Get Agent ARN for AWS API MCP Server
-                agent_arn_response = ssm_client.get_parameter(Name='/aws_api_mcp/runtime/agent_arn')
-                agent_arn = agent_arn_response['Parameter']['Value']
-                
-                # Get bearer token
-                response = secrets_client.get_secret_value(SecretId='aws_api_mcp/cognito/credentials')
-                secret_value = response['SecretString']
-                parsed_secret = json.loads(secret_value)
-                bearer_token = parsed_secret['bearer_token']
-                
-                # Build MCP connection details
-                encoded_arn = agent_arn.replace(':', '%3A').replace('/', '%2F')
-                self.mcp_url = f"https://bedrock-agentcore.{self.region}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
-                self.mcp_headers = {
-                    "authorization": f"Bearer {bearer_token}",
-                    "Content-Type": "application/json"
-                }
-                
-                # Test connection
-                await self._test_connection()
-                
-                self.is_initialized = True
-                logger.info("✅ AWS API MCP Server connection initialized via Bedrock Core Runtime")
-                return True
-                
-            except Exception as e:
-                logger.warning(f"AWS API MCP Server not available via Bedrock Core Runtime: {e}")
-                self.is_initialized = False
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to initialize AWS API MCP Server: {e}")
-            self.is_initialized = False
-            return False
-    
-    async def _test_connection(self) -> None:
-        """Test the connection to AWS API MCP Server"""
-        if not self.mcp_url or not self.mcp_headers:
-            raise ValueError("MCP connection not configured")
-        
-        async with streamablehttp_client(
-            self.mcp_url, 
-            self.mcp_headers, 
-            timeout=timedelta(seconds=30)
-        ) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                # Test with a simple tool list call
-                await session.list_tools()
-    
-    async def close(self):
-        """Close the MCP connection"""
-        self.is_initialized = False
-        logger.info("AWS API MCP Server connection closed")
-    
-    async def connect_to_agentcore_runtime(self, agent_arn: str, bearer_token: str) -> bool:
-        """Connect to AWS API MCP Server via AgentCore Runtime"""
-        try:
-            # Configure connection to AgentCore Runtime
-            self.agentcore_config = {
-                'agent_arn': agent_arn,
-                'bearer_token': bearer_token,
-                'endpoint_url': f"https://bedrock-agent-runtime.{self.region}.amazonaws.com"
-            }
-            
-            # Initialize Bedrock Agent Runtime client
-            self.bedrock_agent_runtime = boto3.client(
-                'bedrock-agent-runtime',
-                region_name=self.region
-            )
-            
-            # Test connection
-            test_result = await self.test_agentcore_connection()
-            if test_result:
-                logger.info("Successfully connected to AWS API MCP Server via AgentCore Runtime")
-                return True
-            else:
-                logger.error("Failed to connect to AWS API MCP Server via AgentCore Runtime")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error connecting to AgentCore Runtime: {e}")
-            return False
-    
-    async def test_agentcore_connection(self) -> bool:
-        """Test connection to AgentCore Runtime"""
-        try:
-            # Extract agent ID from ARN
-            agent_id = self.agentcore_config['agent_arn'].split('/')[-1]
-            
-            # Test with a simple query
-            response = self.bedrock_agent_runtime.invoke_agent(
-                agentId=agent_id,
-                agentAliasId='TSTALIASID',
-                sessionId='test-session',
-                inputText='list available tools'
-            )
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"AgentCore connection test failed: {e}")
-            return False
-    
-    async def invoke_aws_api_tool_via_agentcore(self, tool_name: str, parameters: dict) -> dict:
-        """Invoke AWS API tool via AgentCore Runtime"""
-        try:
-            # Extract agent ID from ARN
-            agent_id = self.agentcore_config['agent_arn'].split('/')[-1]
-            
-            # Prepare the input text with tool invocation
-            input_text = f"Use the {tool_name} tool with parameters: {json.dumps(parameters)}"
-            
-            # Invoke the agent
-            response = self.bedrock_agent_runtime.invoke_agent(
-                agentId=agent_id,
-                agentAliasId='TSTALIASID',
-                sessionId=f"aws-api-{int(time.time())}",
-                inputText=input_text
-            )
-            
-            # Process the response
-            result = {}
-            for event in response['completion']:
-                if 'chunk' in event:
-                    chunk = event['chunk']
-                    if 'bytes' in chunk:
-                        result['output'] = chunk['bytes'].decode('utf-8')
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error invoking AWS API tool via AgentCore: {e}")
-            return {'error': str(e)}
-    
-    async def get_detailed_resource_config(self, resource_arn: str) -> Dict[str, Any]:
+
+    async def suggest_aws_commands(self, query: str) -> Dict[str, Any]:
         """
-        Get detailed resource configuration through AWS APIs
-        
+        Get AWS CLI command suggestions using the suggest_aws_commands MCP tool
+
         Args:
-            resource_arn: ARN of the AWS resource
-            
+            query: Natural language description of what to do
+
         Returns:
-            Detailed resource configuration with security attributes
+            Dictionary with command suggestions and metadata
         """
         try:
-            # Check cache first
-            cache_key = f"resource_{resource_arn}"
-            if self._is_cache_valid(cache_key, self._resource_cache):
-                logger.info(f"Returning cached resource config for: {resource_arn}")
-                return self._resource_cache[cache_key]['data']
-            
-            # Parse ARN to extract service and resource information
-            arn_parts = self._parse_arn(resource_arn)
-            if not arn_parts:
-                raise ValueError(f"Invalid ARN format: {resource_arn}")
-            
-            # Get resource configuration using AWS API MCP server
-            resource_config = await self._get_resource_configuration(arn_parts)
-            
-            # If no configuration returned, return fallback
-            if not resource_config:
-                return self._get_fallback_resource_config(resource_arn)
-            
-            # Enhance with security analysis
-            enhanced_config = await self._enhance_with_security_analysis(resource_config, arn_parts)
-            
-            # Cache results
-            self._resource_cache[cache_key] = {
-                'data': enhanced_config,
-                'timestamp': datetime.now().timestamp()
-            }
-            
-            logger.info(f"Retrieved detailed config for resource: {resource_arn}")
-            return enhanced_config
-            
-        except Exception as e:
-            logger.error(f"Error getting resource config for '{resource_arn}': {e}")
-            return self._get_fallback_resource_config(resource_arn)
-    
-    async def analyze_service_configuration(self, service_name: str, region: str) -> Dict[str, Any]:
-        """
-        Analyze service configuration using AWS APIs
-        
-        Args:
-            service_name: AWS service name (e.g., 's3', 'ec2', 'rds')
-            region: AWS region
-            
-        Returns:
-            Comprehensive service configuration analysis
-        """
-        try:
-            # Check cache first
-            cache_key = f"service_{service_name}_{region}"
-            if self._is_cache_valid(cache_key, self._service_cache):
-                logger.info(f"Returning cached service analysis for: {service_name} in {region}")
-                return self._service_cache[cache_key]['data']
-            
-            # Get all resources for the service in the region
-            resources = await self._discover_service_resources(service_name, region)
-            
-            # Analyze each resource configuration
-            resource_configs = []
-            for resource in resources:
-                try:
-                    config = await self.get_detailed_resource_config(resource['arn'])
-                    resource_configs.append(config)
-                except Exception as e:
-                    logger.warning(f"Failed to analyze resource {resource['arn']}: {e}")
-                    continue
-            
-            # Perform comprehensive service analysis
-            service_analysis = await self._perform_service_analysis(
-                service_name, region, resource_configs
+            start_time = time.time()
+
+            # Call the suggest_aws_commands MCP tool
+            result = await self.mcp_orchestrator.call_api_tool(
+                "suggest_aws_commands", {"query": query}
             )
-            
-            # Cache results
-            self._service_cache[cache_key] = {
-                'data': service_analysis,
-                'timestamp': datetime.now().timestamp()
-            }
-            
-            logger.info(f"Completed service analysis for {service_name} in {region}")
-            return service_analysis
-            
-        except Exception as e:
-            logger.error(f"Error analyzing service '{service_name}' in region '{region}': {e}")
-            return self._get_fallback_service_analysis(service_name, region)
-    
-    async def execute_remediation_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute automated remediation action
-        
-        Args:
-            action: Remediation action details
-            
-        Returns:
-            Result of the remediation action execution
-        """
-        try:
-            # Validate action structure
-            if not self._validate_remediation_action(action):
+
+            execution_time = time.time() - start_time
+
+            if result and result.success:
+                suggestions = result.data
+
+                # Process and enhance suggestions
+                processed_suggestions = self._process_command_suggestions(
+                    suggestions, query
+                )
+
+                logger.info(
+                    f"Generated {len(processed_suggestions)} command suggestions for query: {query}"
+                )
+
                 return {
-                    'success': False,
-                    'message': 'Invalid remediation action structure',
-                    'action_id': action.get('action_id', 'unknown')
+                    "success": True,
+                    "query": query,
+                    "suggestions": processed_suggestions,
+                    "execution_time": execution_time,
+                    "metadata": {
+                        "mcp_server": "aws-api-mcp-server",
+                        "tool_used": "suggest_aws_commands",
+                    },
                 }
-            
-            action_id = action['action_id']
-            action_type = action['action_type']
-            target_resource = action['target_resource']
-            
-            logger.info(f"Executing remediation action {action_id}: {action_type} on {target_resource}")
-            
-            # Perform safety checks
-            safety_check_result = await self._perform_safety_checks(action)
-            if not safety_check_result['passed']:
-                return {
-                    'success': False,
-                    'message': f"Safety checks failed: {safety_check_result['message']}",
-                    'action_id': action_id,
-                    'warnings': safety_check_result.get('warnings', [])
-                }
-            
-            # Execute the remediation action
-            execution_result = await self._execute_remediation_via_api(action)
-            
-            # Log the action result
-            if execution_result['success']:
-                logger.info(f"Successfully executed remediation action {action_id}")
             else:
-                logger.error(f"Failed to execute remediation action {action_id}: {execution_result['message']}")
-            
-            return execution_result
-            
+                error_msg = (
+                    result.error_message if result else "No result from MCP tool"
+                )
+                logger.error(f"Failed to get command suggestions: {error_msg}")
+
+                return {
+                    "success": False,
+                    "query": query,
+                    "error": error_msg,
+                    "fallback_suggestions": self._get_fallback_suggestions(query),
+                    "execution_time": execution_time,
+                }
+
         except Exception as e:
-            logger.error(f"Error executing remediation action: {e}")
+            logger.error(f"Error getting command suggestions for '{query}': {e}")
             return {
-                'success': False,
-                'message': f'Execution error: {str(e)}',
-                'action_id': action.get('action_id', 'unknown'),
-                'execution_time': 0.0
+                "success": False,
+                "query": query,
+                "error": str(e),
+                "fallback_suggestions": self._get_fallback_suggestions(query),
             }
-    
-    async def validate_permissions(self, required_permissions: List[str]) -> Dict[str, Any]:
+
+    async def execute_aws_command(
+        self, cli_command: str, max_results: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
-        Validate required permissions for API operations
-        
+        Execute AWS CLI command using the call_aws MCP tool
+
         Args:
-            required_permissions: List of required IAM permissions
-            
+            cli_command: AWS CLI command to execute
+            max_results: Optional limit for number of results
+
         Returns:
-            Permission validation status and recommendations
+            Dictionary with command execution results
         """
         try:
-            # Check cache first
-            cache_key = f"permissions_{hash(tuple(sorted(required_permissions)))}"
-            if self._is_cache_valid(cache_key, self._permission_cache):
-                logger.info("Returning cached permission validation results")
-                return self._permission_cache[cache_key]['data']
-            
-            # Validate permissions using AWS API MCP server
-            validation_results = await self._validate_permissions_via_api(required_permissions)
-            
-            # Process validation results
-            processed_results = self._process_permission_validation(validation_results, required_permissions)
-            
-            # Cache results
-            self._permission_cache[cache_key] = {
-                'data': processed_results,
-                'timestamp': datetime.now().timestamp()
+            start_time = time.time()
+
+            # Validate command format
+            if not cli_command.strip().startswith("aws "):
+                return {
+                    "success": False,
+                    "command": cli_command,
+                    "error": 'Command must start with "aws "',
+                    "execution_time": 0.0,
+                }
+
+            # Prepare arguments for call_aws tool
+            call_args = {"cli_command": cli_command}
+            if max_results:
+                call_args["max_results"] = max_results
+
+            # Call the call_aws MCP tool
+            result = await self.mcp_orchestrator.call_api_tool("call_aws", call_args)
+
+            execution_time = time.time() - start_time
+
+            if result and result.success:
+                output_data = result.data
+
+                logger.info(f"Successfully executed AWS command: {cli_command}")
+
+                return {
+                    "success": True,
+                    "command": cli_command,
+                    "output": output_data,
+                    "execution_time": execution_time,
+                    "metadata": {
+                        "mcp_server": "aws-api-mcp-server",
+                        "tool_used": "call_aws",
+                        "max_results": max_results,
+                    },
+                }
+            else:
+                error_msg = (
+                    result.error_message if result else "No result from MCP tool"
+                )
+                logger.error(
+                    f"Failed to execute AWS command '{cli_command}': {error_msg}"
+                )
+
+                return {
+                    "success": False,
+                    "command": cli_command,
+                    "error": error_msg,
+                    "execution_time": execution_time,
+                }
+
+        except Exception as e:
+            logger.error(f"Error executing AWS command '{cli_command}': {e}")
+            return {
+                "success": False,
+                "command": cli_command,
+                "error": str(e),
+                "execution_time": time.time() - start_time
+                if "start_time" in locals()
+                else 0.0,
             }
-            
-            logger.info(f"Validated {len(required_permissions)} permissions")
-            return processed_results
-            
+
+    async def validate_permissions(
+        self, required_permissions: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Validate AWS permissions by attempting to execute test commands
+
+        Args:
+            required_permissions: List of IAM permissions to validate
+
+        Returns:
+            Dictionary with validation results
+        """
+        try:
+            validation_results = {}
+
+            for permission in required_permissions:
+                # Map permission to a test command
+                test_command = self._get_test_command_for_permission(permission)
+
+                if test_command:
+                    # Execute test command with dry-run or minimal impact
+                    result = await self.execute_aws_command(test_command)
+
+                    validation_results[permission] = {
+                        "granted": result["success"],
+                        "test_command": test_command,
+                        "error": result.get("error") if not result["success"] else None,
+                    }
+                else:
+                    validation_results[permission] = {
+                        "granted": None,
+                        "test_command": None,
+                        "error": "No test command available for this permission",
+                    }
+
+            # Calculate overall status
+            granted_count = sum(
+                1 for v in validation_results.values() if v["granted"] is True
+            )
+            total_count = len(required_permissions)
+
+            overall_status = (
+                "granted"
+                if granted_count == total_count
+                else "partial"
+                if granted_count > 0
+                else "denied"
+            )
+
+            logger.info(
+                f"Permission validation completed: {granted_count}/{total_count} permissions granted"
+            )
+
+            return {
+                "success": True,
+                "overall_status": overall_status,
+                "permissions": validation_results,
+                "summary": {
+                    "total_permissions": total_count,
+                    "granted_permissions": granted_count,
+                    "denied_permissions": total_count - granted_count,
+                },
+            }
+
         except Exception as e:
             logger.error(f"Error validating permissions: {e}")
-            return self._get_fallback_permission_validation(required_permissions)
-    
-    async def _get_resource_configuration(self, arn_parts: Dict[str, str]) -> Dict[str, Any]:
-        """Get resource configuration using AWS API MCP server via Bedrock Core Runtime"""
-        if not self.is_initialized:
-            await self.initialize()
-        
-        if not self.is_initialized:
-            raise RuntimeError("AWS API MCP Server not initialized")
-        
+            return {"success": False, "error": str(e), "permissions": {}}
+
+    async def get_resource_details(
+        self, resource_type: str, resource_id: str, region: str = None
+    ) -> Dict[str, Any]:
+        """
+        Get detailed information about an AWS resource
+
+        Args:
+            resource_type: Type of AWS resource (e.g., 's3', 'ec2', 'rds')
+            resource_id: Resource identifier
+            region: AWS region (defaults to instance region)
+
+        Returns:
+            Dictionary with resource details
+        """
         try:
-            service = arn_parts['service']
-            resource_type = arn_parts['resource_type']
-            resource_id = arn_parts['resource_id']
-            region = arn_parts['region']
-            
-            # Determine tool name and arguments based on service type
-            if service == 's3':
-                tool_name = "get_bucket_configuration"
-                arguments = {
-                    "bucket_name": resource_id,
-                    "include_policy": True,
-                    "include_encryption": True,
-                    "include_versioning": True,
-                    "include_logging": True
+            target_region = region or self.region
+
+            # Generate appropriate AWS CLI command for the resource type
+            command = self._build_describe_command(
+                resource_type, resource_id, target_region
+            )
+
+            if not command:
+                return {
+                    "success": False,
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "error": f"Unsupported resource type: {resource_type}",
                 }
-            elif service == 'ec2':
-                tool_name = "describe_instances"
-                arguments = {
-                    "instance_ids": [resource_id],
-                    "region": region,
-                    "include_security_groups": True,
-                    "include_iam_profile": True
-                }
-            elif service == 'rds':
-                tool_name = "describe_db_instances"
-                arguments = {
-                    "db_instance_identifier": resource_id,
-                    "region": region,
-                    "include_security_groups": True,
-                    "include_parameter_groups": True
+
+            # Execute the command
+            result = await self.execute_aws_command(command)
+
+            if result["success"]:
+                # Process and structure the output
+                processed_data = self._process_resource_data(
+                    result["output"], resource_type
+                )
+
+                return {
+                    "success": True,
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "region": target_region,
+                    "details": processed_data,
+                    "raw_command": command,
                 }
             else:
-                # Generic resource description
-                tool_name = "describe_resource"
-                arguments = {
-                    "resource_arn": f"arn:aws:{service}:{region}::{resource_type}/{resource_id}",
-                    "include_tags": True,
-                    "include_security_attributes": True
+                return {
+                    "success": False,
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "region": target_region,
+                    "error": result.get("error", "Unknown error"),
+                    "command_used": command,
                 }
-            
-            # Call tool via MCP client session
-            async with streamablehttp_client(
-                self.mcp_url, 
-                self.mcp_headers, 
-                timeout=timedelta(seconds=60)
-            ) as (read_stream, write_stream, _):
-                async with ClientSession(read_stream, write_stream) as session:
-                    await session.initialize()
-                    result = await session.call_tool(tool_name, arguments)
-                    
-                    if result.content and len(result.content) > 0:
-                        text_content = result.content[0].text
-                        if text_content:
-                            try:
-                                return json.loads(text_content)
-                            except json.JSONDecodeError:
-                                return {"raw_response": text_content}
-                    
-                    logger.warning(f"No configuration data returned for resource")
-                    return {}
-                
+
         except Exception as e:
-            logger.error(f"Error calling AWS API MCP server: {e}")
-            raise
-    
-    async def _enhance_with_security_analysis(self, config: Dict[str, Any], arn_parts: Dict[str, str]) -> Dict[str, Any]:
-        """Enhance resource configuration with security analysis"""
-        service = arn_parts['service']
-        
-        # Extract security-relevant attributes
-        security_attributes = {}
-        if service in self.security_attributes:
-            for attr in self.security_attributes[service]:
-                if attr in config:
-                    security_attributes[attr] = config[attr]
-        
-        # Analyze compliance status
-        compliance_status = self._analyze_compliance_status(config, service)
-        
-        # Generate security recommendations
-        recommendations = self._generate_security_recommendations(config, service)
-        
-        # Reconstruct ARN properly for S3 buckets (no resource type prefix)
-        if service == 's3':
-            resource_arn = f"arn:aws:{service}:{arn_parts['region']}::{arn_parts['resource_id']}"
+            logger.error(
+                f"Error getting resource details for {resource_type}/{resource_id}: {e}"
+            )
+            return {
+                "success": False,
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "error": str(e),
+            }
+
+    def _process_command_suggestions(
+        self, suggestions: Any, query: str
+    ) -> List[Dict[str, Any]]:
+        """Process raw command suggestions from MCP tool"""
+        processed = []
+
+        if isinstance(suggestions, list):
+            for suggestion in suggestions:
+                if isinstance(suggestion, dict):
+                    processed.append(
+                        {
+                            "command": suggestion.get("command", ""),
+                            "confidence": suggestion.get("confidence", 0.0),
+                            "description": suggestion.get("description", ""),
+                            "required_parameters": suggestion.get(
+                                "required_parameters", []
+                            ),
+                            "example": suggestion.get(
+                                "example", suggestion.get("command", "")
+                            ),
+                        }
+                    )
+                elif isinstance(suggestion, str):
+                    processed.append(
+                        {
+                            "command": suggestion,
+                            "confidence": 0.8,
+                            "description": f"Suggested command for: {query}",
+                            "required_parameters": [],
+                            "example": suggestion,
+                        }
+                    )
+
+        return processed
+
+    def _get_fallback_suggestions(self, query: str) -> List[Dict[str, Any]]:
+        """Provide fallback suggestions when MCP tool fails"""
+        query_lower = query.lower()
+
+        fallback_suggestions = []
+
+        # Common patterns
+        if "list" in query_lower:
+            if "s3" in query_lower or "bucket" in query_lower:
+                fallback_suggestions.append(
+                    {
+                        "command": "aws s3api list-buckets",
+                        "confidence": 0.7,
+                        "description": "List all S3 buckets",
+                        "required_parameters": [],
+                        "example": "aws s3api list-buckets",
+                    }
+                )
+            elif "ec2" in query_lower or "instance" in query_lower:
+                fallback_suggestions.append(
+                    {
+                        "command": "aws ec2 describe-instances",
+                        "confidence": 0.7,
+                        "description": "List EC2 instances",
+                        "required_parameters": [],
+                        "example": "aws ec2 describe-instances",
+                    }
+                )
+
+        return fallback_suggestions
+
+    def _get_test_command_for_permission(self, permission: str) -> Optional[str]:
+        """Map IAM permission to a test command"""
+        permission_tests = {
+            "s3:ListBucket": "aws s3api list-buckets",
+            "s3:GetBucketLocation": "aws s3api get-bucket-location --bucket test-bucket-name",
+            "ec2:DescribeInstances": "aws ec2 describe-instances --max-items 1",
+            "rds:DescribeDBInstances": "aws rds describe-db-instances --max-items 1",
+            "lambda:ListFunctions": "aws lambda list-functions --max-items 1",
+            "iam:ListUsers": "aws iam list-users --max-items 1",
+            "iam:GetUser": "aws sts get-caller-identity",
+        }
+
+        return permission_tests.get(permission)
+
+    def _build_describe_command(
+        self, resource_type: str, resource_id: str, region: str
+    ) -> Optional[str]:
+        """Build appropriate describe command for resource type"""
+        commands = {
+            "s3": f"aws s3api get-bucket-location --bucket {resource_id}",
+            "ec2": f"aws ec2 describe-instances --instance-ids {resource_id} --region {region}",
+            "rds": f"aws rds describe-db-instances --db-instance-identifier {resource_id} --region {region}",
+            "lambda": f"aws lambda get-function --function-name {resource_id} --region {region}",
+            "iam": f"aws iam get-user --user-name {resource_id}",
+        }
+
+        return commands.get(resource_type.lower())
+
+    def _process_resource_data(
+        self, raw_data: Any, resource_type: str
+    ) -> Dict[str, Any]:
+        """Process raw AWS CLI output into structured data"""
+        if isinstance(raw_data, dict):
+            return raw_data
+        elif isinstance(raw_data, str):
+            try:
+                return json.loads(raw_data)
+            except json.JSONDecodeError:
+                return {"raw_output": raw_data}
         else:
-            resource_arn = f"arn:aws:{service}:{arn_parts['region']}::{arn_parts['resource_type']}/{arn_parts['resource_id']}"
-        
-        return {
-            'resource_arn': resource_arn,
-            'resource_type': arn_parts['resource_type'],
-            'service': service,
-            'region': arn_parts['region'],
-            'configuration': config,
-            'security_attributes': security_attributes,
-            'compliance_status': compliance_status,
-            'recommendations': recommendations,
-            'last_modified': config.get('LastModified', datetime.now().isoformat()),
-            'tags': config.get('Tags', {})
-        }
-    
-    async def _discover_service_resources(self, service_name: str, region: str) -> List[Dict[str, Any]]:
-        """Discover all resources for a service in a region"""
-        if not self.is_initialized:
-            await self.initialize()
-        
-        if not self.is_initialized:
-            logger.warning("AWS API MCP Server not initialized, returning empty resource list")
-            return []
-        
+            return {"data": raw_data}
+
+
+# Legacy interface methods for backward compatibility
+class AWSAPIIntegrationImpl(AWSAPIIntegrationImpl):
+    """Extended implementation with legacy method support"""
+
+    async def get_detailed_resource_config(self, resource_arn: str) -> Dict[str, Any]:
+        """Legacy method - get resource details from ARN"""
         try:
-            # Get resource types for the service
-            resource_types = self.service_resource_mappings.get(service_name, [])
-            
-            resources = []
-            for resource_type in resource_types:
-                try:
-                    # Use AWS Config or Resource Groups API to discover resources
-                    async with streamablehttp_client(
-                        self.mcp_url, 
-                        self.mcp_headers, 
-                        timeout=timedelta(seconds=60)
-                    ) as (read_stream, write_stream, _):
-                        async with ClientSession(read_stream, write_stream) as session:
-                            await session.initialize()
-                            result = await session.call_tool("list_resources", {
-                                "resource_type": resource_type,
-                                "region": region,
-                                "max_results": 100
-                            })
-                            
-                            if result.content and len(result.content) > 0:
-                                text_content = result.content[0].text
-                                if text_content:
-                                    try:
-                                        resource_list = json.loads(text_content)
-                                        if isinstance(resource_list, list):
-                                            resources.extend(resource_list)
-                                        elif isinstance(resource_list, dict) and "resources" in resource_list:
-                                            resources.extend(resource_list["resources"])
-                                    except json.JSONDecodeError:
-                                        logger.warning(f"Failed to parse resource list for {resource_type}")
-                
-                except Exception as e:
-                    logger.warning(f"Failed to discover resources for {resource_type}: {e}")
-                    continue
-            
-            return resources
-            
-        except Exception as e:
-            logger.error(f"Error discovering resources for service {service_name}: {e}")
-            return []
-    
-    async def _perform_service_analysis(self, service_name: str, region: str, resource_configs: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Perform comprehensive service analysis"""
-        security_findings = []
-        compliance_gaps = []
-        recommendations = []
-        security_scores = []
-        
-        for config in resource_configs:
-            # Extract security findings
-            if 'compliance_status' in config:
-                for finding in config['compliance_status'].get('findings', []):
-                    security_findings.append(finding)
-            
-            # Extract compliance gaps
-            if 'compliance_status' in config:
-                for gap in config['compliance_status'].get('gaps', []):
-                    compliance_gaps.append(gap)
-            
-            # Extract recommendations
-            if 'recommendations' in config:
-                recommendations.extend(config['recommendations'])
-            
-            # Calculate security score for this resource
-            resource_score = self._calculate_resource_security_score(config)
-            security_scores.append(resource_score)
-        
-        # Calculate overall security score
-        overall_score = sum(security_scores) / len(security_scores) if security_scores else 0.0
-        
-        return {
-            'service_name': service_name,
-            'region': region,
-            'resources': resource_configs,
-            'security_findings': security_findings,
-            'compliance_gaps': compliance_gaps,
-            'recommendations': recommendations[:10],  # Top 10 recommendations
-            'overall_security_score': overall_score,
-            'analysis_timestamp': datetime.now().isoformat(),
-            'summary': {
-                'total_resources': len(resource_configs),
-                'high_risk_findings': len([f for f in security_findings if f.get('severity') == 'HIGH']),
-                'compliance_gaps': len(compliance_gaps),
-                'actionable_recommendations': len([r for r in recommendations if r.get('actionable', False)])
-            }
-        }
-    
-    async def _perform_safety_checks(self, action: Dict[str, Any]) -> Dict[str, bool]:
-        """Perform safety checks before executing remediation action"""
-        try:
-            action_type = action['action_type']
-            target_resource = action['target_resource']
-            safety_checks = action.get('safety_checks', [])
-            
-            check_results = []
-            warnings = []
-            
-            for check in safety_checks:
-                if check == 'verify_resource_exists':
-                    # Verify the target resource exists
-                    exists = await self._verify_resource_exists(target_resource)
-                    check_results.append(exists)
-                    if not exists:
-                        warnings.append(f"Target resource {target_resource} does not exist")
-                
-                elif check == 'check_existing_configuration':
-                    # Check if the configuration change is needed
-                    needed = await self._check_configuration_change_needed(action)
-                    check_results.append(needed)
-                    if not needed:
-                        warnings.append("Configuration change may not be necessary")
-                
-                elif check == 'validate_parameters':
-                    # Validate action parameters
-                    valid = self._validate_action_parameters(action)
-                    check_results.append(valid)
-                    if not valid:
-                        warnings.append("Invalid action parameters")
-                
+            # Parse ARN to extract resource info
+            arn_parts = resource_arn.split(":")
+            if len(arn_parts) >= 6:
+                service = arn_parts[2]
+                region = arn_parts[3]
+                resource_part = arn_parts[5]
+
+                # Extract resource ID from resource part
+                if "/" in resource_part:
+                    resource_id = resource_part.split("/")[-1]
                 else:
-                    # Unknown safety check
-                    check_results.append(True)
-                    warnings.append(f"Unknown safety check: {check}")
-            
-            all_passed = all(check_results) if check_results else True
-            
-            return {
-                'passed': all_passed,
-                'message': 'All safety checks passed' if all_passed else 'Some safety checks failed',
-                'warnings': warnings,
-                'check_details': dict(zip(safety_checks, check_results))
-            }
-            
+                    resource_id = resource_part
+
+                return await self.get_resource_details(service, resource_id, region)
+            else:
+                return {
+                    "success": False,
+                    "error": f"Invalid ARN format: {resource_arn}",
+                }
         except Exception as e:
-            logger.error(f"Error performing safety checks: {e}")
             return {
-                'passed': False,
-                'message': f'Safety check error: {str(e)}',
-                'warnings': ['Safety check system error']
+                "success": False,
+                "error": f"Error parsing ARN {resource_arn}: {str(e)}",
             }
-    
-    async def _execute_remediation_via_api(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute remediation action via AWS API MCP server"""
-        if not self.is_initialized:
-            await self.initialize()
-        
-        if not self.is_initialized:
-            return {
-                'action_id': action.get('action_id', 'unknown'),
-                'success': False,
-                'message': 'AWS API MCP Server not initialized',
-                'changes_made': [],
-                'execution_time': 0.0
-            }
-        
+
+    async def analyze_service_configuration(
+        self, service_name: str, region: str
+    ) -> Dict[str, Any]:
+        """Legacy method - analyze service configuration"""
         try:
-            action_id = action['action_id']
-            action_type = action['action_type']
-            target_resource = action['target_resource']
-            parameters = action.get('parameters', {})
-            
-            start_time = datetime.now().timestamp()
-            
-            # Determine tool name and arguments based on action type
-            if action_type == 'enable_encryption':
-                tool_name = "enable_resource_encryption"
-                arguments = {
-                    "resource_arn": target_resource,
-                    "encryption_config": parameters.get('encryption_config', {}),
-                    "dry_run": parameters.get('dry_run', False)
-                }
-            elif action_type == 'update_security_group':
-                tool_name = "update_security_group_rules"
-                arguments = {
-                    "security_group_id": parameters.get('security_group_id'),
-                    "rules": parameters.get('rules', []),
-                    "dry_run": parameters.get('dry_run', False)
-                }
-            elif action_type == 'enable_logging':
-                tool_name = "enable_resource_logging"
-                arguments = {
-                    "resource_arn": target_resource,
-                    "logging_config": parameters.get('logging_config', {}),
-                    "dry_run": parameters.get('dry_run', False)
+            # Use suggest_aws_commands to get appropriate analysis commands
+            query = f"analyze {service_name} service configuration in {region}"
+            suggestions = await self.suggest_aws_commands(query)
+
+            if suggestions["success"] and suggestions["suggestions"]:
+                # Execute the first suggested command
+                first_suggestion = suggestions["suggestions"][0]
+                result = await self.execute_aws_command(first_suggestion["command"])
+
+                return {
+                    "success": result["success"],
+                    "service_name": service_name,
+                    "region": region,
+                    "analysis": result.get("output", {}),
+                    "command_used": first_suggestion["command"],
+                    "error": result.get("error"),
                 }
             else:
-                # Generic remediation action
-                tool_name = "execute_remediation_action"
-                arguments = {
+                return {
+                    "success": False,
+                    "service_name": service_name,
+                    "region": region,
+                    "error": "No analysis commands suggested",
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "service_name": service_name,
+                "region": region,
+                "error": str(e),
+            }
+
+    async def execute_remediation_action(
+        self, action: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Legacy method - execute remediation action"""
+        try:
+            action_type = action.get("action_type", "")
+            target_resource = action.get("target_resource", "")
+            parameters = action.get("parameters", {})
+
+            # Generate remediation command based on action type
+            query = f"execute {action_type} on {target_resource} with parameters {parameters}"
+            suggestions = await self.suggest_aws_commands(query)
+
+            if suggestions["success"] and suggestions["suggestions"]:
+                # Execute the remediation command
+                command = suggestions["suggestions"][0]["command"]
+                result = await self.execute_aws_command(command)
+
+                return {
+                    "success": result["success"],
+                    "action_id": action.get("action_id", "unknown"),
                     "action_type": action_type,
                     "target_resource": target_resource,
-                    "parameters": parameters
+                    "result": result.get("output", {}),
+                    "command_executed": command,
+                    "error": result.get("error"),
                 }
-            
-            # Execute the remediation action via MCP client session
-            async with streamablehttp_client(
-                self.mcp_url, 
-                self.mcp_headers, 
-                timeout=timedelta(seconds=120)
-            ) as (read_stream, write_stream, _):
-                async with ClientSession(read_stream, write_stream) as session:
-                    await session.initialize()
-                    result = await session.call_tool(tool_name, arguments)
-                    
-                    execution_time = datetime.now().timestamp() - start_time
-                    
-                    if result.content and len(result.content) > 0:
-                        text_content = result.content[0].text
-                        if text_content:
-                            try:
-                                execution_result = json.loads(text_content)
-                                return {
-                                    'action_id': action_id,
-                                    'success': execution_result.get('success', False),
-                                    'message': execution_result.get('message', 'Action completed'),
-                                    'changes_made': execution_result.get('changes_made', []),
-                                    'rollback_info': execution_result.get('rollback_info'),
-                                    'execution_time': execution_time,
-                                    'warnings': execution_result.get('warnings', [])
-                                }
-                            except json.JSONDecodeError:
-                                return {
-                                    'action_id': action_id,
-                                    'success': True,
-                                    'message': text_content,
-                                    'changes_made': [],
-                                    'execution_time': execution_time
-                                }
-                    
-                    return {
-                        'action_id': action_id,
-                        'success': False,
-                        'message': 'No response content from API server',
-                        'changes_made': [],
-                        'execution_time': execution_time
-                    }
-                
-        except Exception as e:
-            logger.error(f"Error executing remediation via API: {e}")
-            return {
-                'action_id': action.get('action_id', 'unknown'),
-                'success': False,
-                'message': f'Execution error: {str(e)}',
-                'changes_made': [],
-                'execution_time': 0.0
-            }
-    
-    async def _validate_permissions_via_api(self, required_permissions: List[str]) -> Dict[str, Any]:
-        """Validate permissions using AWS API MCP server"""
-        if not self.is_initialized:
-            await self.initialize()
-        
-        if not self.is_initialized:
-            raise RuntimeError("AWS API MCP Server not initialized")
-        
-        try:
-            # Call permission validation tool via MCP client session
-            async with streamablehttp_client(
-                self.mcp_url, 
-                self.mcp_headers, 
-                timeout=timedelta(seconds=60)
-            ) as (read_stream, write_stream, _):
-                async with ClientSession(read_stream, write_stream) as session:
-                    await session.initialize()
-                    result = await session.call_tool("simulate_principal_policy", {
-                        "policy_source_arn": "current_user",
-                        "action_names": required_permissions,
-                        "resource_arns": ["*"],
-                        "context_entries": []
-                    })
-                    
-                    if result.content and len(result.content) > 0:
-                        text_content = result.content[0].text
-                        if text_content:
-                            try:
-                                return json.loads(text_content)
-                            except json.JSONDecodeError:
-                                return {"raw_response": text_content}
-                    
-                    return {}
-                
-        except Exception as e:
-            logger.error(f"Error validating permissions via API: {e}")
-            raise
-    
-    def _process_permission_validation(self, validation_results: Dict[str, Any], required_permissions: List[str]) -> Dict[str, Any]:
-        """Process permission validation results"""
-        permission_details = {}
-        missing_permissions = []
-        recommendations = []
-        
-        # Process each permission
-        for permission in required_permissions:
-            if permission in validation_results:
-                result = validation_results[permission]
-                permission_details[permission] = result
-                
-                if result.get('decision') == 'denied':
-                    missing_permissions.append(permission)
-                    recommendations.append(f"Grant {permission} permission to the current user/role")
             else:
-                # Permission not found in results, assume denied
-                missing_permissions.append(permission)
-                permission_details[permission] = {
-                    'decision': 'denied',
-                    'reason': 'Permission not evaluated'
+                return {
+                    "success": False,
+                    "action_id": action.get("action_id", "unknown"),
+                    "error": "No remediation commands suggested",
                 }
-        
-        # Determine overall status
-        if not missing_permissions:
-            overall_status = PermissionValidationResult.GRANTED
-        elif len(missing_permissions) == len(required_permissions):
-            overall_status = PermissionValidationResult.DENIED
-        else:
-            overall_status = PermissionValidationResult.PARTIAL
-        
-        return {
-            'overall_status': overall_status.value,
-            'permission_details': permission_details,
-            'missing_permissions': missing_permissions,
-            'recommendations': recommendations,
-            'validation_timestamp': datetime.now().isoformat(),
-            'summary': {
-                'total_permissions': len(required_permissions),
-                'granted_permissions': len(required_permissions) - len(missing_permissions),
-                'denied_permissions': len(missing_permissions)
-            }
-        }
-    
-    def _parse_arn(self, arn: str) -> Optional[Dict[str, str]]:
-        """Parse AWS ARN into components"""
-        try:
-            # ARN format: arn:partition:service:region:account-id:resource-type/resource-id
-            parts = arn.split(':')
-            if len(parts) < 6:
-                return None
-            
-            resource_part = parts[5]
-            
-            # Handle different ARN formats
-            if parts[2] == 's3':
-                # S3 ARN format: arn:aws:s3:::bucket-name
-                resource_type = 'bucket'
-                resource_id = resource_part
-            elif '/' in resource_part:
-                resource_type, resource_id = resource_part.split('/', 1)
-            else:
-                resource_type = resource_part
-                resource_id = parts[6] if len(parts) > 6 else resource_part
-            
+        except Exception as e:
             return {
-                'partition': parts[1],
-                'service': parts[2],
-                'region': parts[3],
-                'account_id': parts[4],
-                'resource_type': resource_type,
-                'resource_id': resource_id
+                "success": False,
+                "action_id": action.get("action_id", "unknown"),
+                "error": str(e),
             }
-        except Exception:
-            return None
-    
-    def _analyze_compliance_status(self, config: Dict[str, Any], service: str) -> Dict[str, Any]:
-        """Analyze compliance status of resource configuration"""
-        findings = []
-        gaps = []
-        
-        if service == 's3':
-            # Check S3 security configurations
-            if not config.get('PublicAccessBlock', {}).get('BlockPublicAcls', False):
-                findings.append({
-                    'severity': 'HIGH',
-                    'finding': 'S3 bucket allows public ACLs',
-                    'recommendation': 'Enable Block Public ACLs'
-                })
-            
-            if not config.get('BucketEncryption'):
-                gaps.append({
-                    'gap': 'Missing default encryption',
-                    'impact': 'Data at rest not encrypted by default'
-                })
-        
-        elif service == 'ec2':
-            # Check EC2 security configurations
-            security_groups = config.get('SecurityGroups', [])
-            for sg in security_groups:
-                for rule in sg.get('IpPermissions', []):
-                    if rule.get('IpRanges') and any(ip.get('CidrIp') == '0.0.0.0/0' for ip in rule.get('IpRanges', [])):
-                        findings.append({
-                            'severity': 'MEDIUM',
-                            'finding': 'Security group allows access from 0.0.0.0/0',
-                            'recommendation': 'Restrict source IP ranges'
-                        })
-        
-        elif service == 'rds':
-            # Check RDS security configurations
-            if not config.get('StorageEncrypted', False):
-                findings.append({
-                    'severity': 'HIGH',
-                    'finding': 'RDS instance storage not encrypted',
-                    'recommendation': 'Enable storage encryption'
-                })
-            
-            if config.get('PubliclyAccessible', False):
-                findings.append({
-                    'severity': 'HIGH',
-                    'finding': 'RDS instance is publicly accessible',
-                    'recommendation': 'Disable public accessibility'
-                })
-        
-        return {
-            'findings': findings,
-            'gaps': gaps,
-            'compliance_score': max(0, 100 - (len(findings) * 20) - (len(gaps) * 10))
-        }
-    
-    def _generate_security_recommendations(self, config: Dict[str, Any], service: str) -> List[Dict[str, Any]]:
-        """Generate security recommendations based on configuration"""
-        recommendations = []
-        
-        if service == 's3':
-            if not config.get('BucketEncryption'):
-                recommendations.append({
-                    'priority': 'HIGH',
-                    'category': 'encryption',
-                    'title': 'Enable S3 bucket encryption',
-                    'description': 'Configure default encryption for the S3 bucket',
-                    'actionable': True,
-                    'remediation_action': 'enable_encryption'
-                })
-            
-            if not config.get('BucketVersioning', {}).get('Status') == 'Enabled':
-                recommendations.append({
-                    'priority': 'MEDIUM',
-                    'category': 'data_protection',
-                    'title': 'Enable S3 bucket versioning',
-                    'description': 'Enable versioning to protect against accidental deletion',
-                    'actionable': True,
-                    'remediation_action': 'enable_versioning'
-                })
-        
-        elif service == 'ec2':
-            if not config.get('Monitoring', {}).get('State') == 'enabled':
-                recommendations.append({
-                    'priority': 'MEDIUM',
-                    'category': 'monitoring',
-                    'title': 'Enable detailed monitoring',
-                    'description': 'Enable detailed CloudWatch monitoring for the instance',
-                    'actionable': True,
-                    'remediation_action': 'enable_detailed_monitoring'
-                })
-        
-        elif service == 'rds':
-            backup_retention = config.get('BackupRetentionPeriod', 0)
-            if backup_retention < 7:
-                recommendations.append({
-                    'priority': 'MEDIUM',
-                    'category': 'backup',
-                    'title': 'Increase backup retention period',
-                    'description': 'Set backup retention period to at least 7 days',
-                    'actionable': True,
-                    'remediation_action': 'update_backup_retention'
-                })
-        
-        return recommendations
-    
-    def _calculate_resource_security_score(self, config: Dict[str, Any]) -> float:
-        """Calculate security score for a resource (0-100)"""
-        score = 100.0
-        
-        # Deduct points for security findings
-        compliance_status = config.get('compliance_status', {})
-        findings = compliance_status.get('findings', [])
-        
-        for finding in findings:
-            severity = finding.get('severity', 'LOW')
-            if severity == 'HIGH':
-                score -= 25
-            elif severity == 'MEDIUM':
-                score -= 15
-            elif severity == 'LOW':
-                score -= 5
-        
-        # Deduct points for compliance gaps
-        gaps = compliance_status.get('gaps', [])
-        score -= len(gaps) * 10
-        
-        return max(0.0, score)
-    
-    def _validate_remediation_action(self, action: Dict[str, Any]) -> bool:
-        """Validate remediation action structure"""
-        required_fields = ['action_id', 'action_type', 'target_resource']
-        return all(field in action for field in required_fields)
-    
-    async def _verify_resource_exists(self, resource_arn: str) -> bool:
-        """Verify that a resource exists"""
-        try:
-            config = await self.get_detailed_resource_config(resource_arn)
-            return bool(config and config.get('resource_arn') and 'error' not in config)
-        except Exception:
-            return False
-    
-    async def _check_configuration_change_needed(self, action: Dict[str, Any]) -> bool:
-        """Check if configuration change is actually needed"""
-        try:
-            target_resource = action['target_resource']
-            action_type = action['action_type']
-            
-            config = await self.get_detailed_resource_config(target_resource)
-            
-            # If there's an error getting config, assume change is needed
-            if 'error' in config:
-                return True
-            
-            if action_type == 'enable_encryption':
-                # Check if encryption is already enabled
-                return not bool(config.get('configuration', {}).get('BucketEncryption'))
-            elif action_type == 'enable_logging':
-                # Check if logging is already enabled
-                return not bool(config.get('configuration', {}).get('BucketLogging'))
-            
-            # For other actions, assume change is needed
-            return True
-            
-        except Exception:
-            # If we can't determine, assume change is needed
-            return True
-    
-    def _validate_action_parameters(self, action: Dict[str, Any]) -> bool:
-        """Validate action parameters"""
-        parameters = action.get('parameters', {})
-        action_type = action['action_type']
-        
-        if action_type == 'enable_encryption':
-            # Validate encryption parameters
-            encryption_config = parameters.get('encryption_config', {})
-            return 'SSEAlgorithm' in encryption_config
-        elif action_type == 'update_security_group':
-            # Validate security group parameters
-            return 'security_group_id' in parameters and 'rules' in parameters
-        
-        # For other actions, basic validation
-        return isinstance(parameters, dict)
-    
-    def _is_cache_valid(self, cache_key: str, cache_dict: Dict) -> bool:
-        """Check if cache entry is still valid"""
-        if cache_key not in cache_dict:
-            return False
-        
-        cache_entry = cache_dict[cache_key]
-        current_time = datetime.now().timestamp()
-        
-        return (current_time - cache_entry['timestamp']) < self.cache_ttl
-    
-    def _get_fallback_resource_config(self, resource_arn: str) -> Dict[str, Any]:
-        """Provide fallback resource configuration when API calls fail"""
-        arn_parts = self._parse_arn(resource_arn)
-        if not arn_parts:
-            return {'error': 'Invalid ARN format'}
-        
-        return {
-            'resource_arn': resource_arn,
-            'resource_type': arn_parts.get('resource_type', 'unknown'),
-            'service': arn_parts.get('service', 'unknown'),
-            'region': arn_parts.get('region', 'unknown'),
-            'configuration': {},
-            'security_attributes': {},
-            'compliance_status': {
-                'findings': [],
-                'gaps': [],
-                'compliance_score': 0
-            },
-            'recommendations': [],
-            'error': 'Failed to retrieve resource configuration from AWS API'
-        }
-    
-    def _get_fallback_service_analysis(self, service_name: str, region: str) -> Dict[str, Any]:
-        """Provide fallback service analysis when API calls fail"""
-        return {
-            'service_name': service_name,
-            'region': region,
-            'resources': [],
-            'security_findings': [],
-            'compliance_gaps': [],
-            'recommendations': [],
-            'overall_security_score': 0.0,
-            'analysis_timestamp': datetime.now().isoformat(),
-            'error': 'Failed to analyze service configuration via AWS API'
-        }
-    
-    def _get_fallback_permission_validation(self, required_permissions: List[str]) -> Dict[str, Any]:
-        """Provide fallback permission validation when API calls fail"""
-        return {
-            'overall_status': PermissionValidationResult.UNKNOWN.value,
-            'permission_details': {perm: {'decision': 'unknown', 'reason': 'Validation failed'} for perm in required_permissions},
-            'missing_permissions': required_permissions,
-            'recommendations': ['Verify AWS API MCP server connectivity', 'Check IAM permissions for policy simulation'],
-            'validation_timestamp': datetime.now().isoformat(),
-            'error': 'Failed to validate permissions via AWS API'
-        }
-
-
-# Factory function for creating AWS API integration instance
-def create_aws_api_integration(region: str = "us-east-1", cache_ttl: int = 1800) -> AWSAPIIntegration:
-    """
-    Factory function to create AWS API integration instance
-    
-    Args:
-        region: AWS region for the integration
-        cache_ttl: Cache time-to-live in seconds
-        
-    Returns:
-        AWSAPIIntegration instance
-    """
-    return AWSAPIIntegrationImpl(region, cache_ttl)

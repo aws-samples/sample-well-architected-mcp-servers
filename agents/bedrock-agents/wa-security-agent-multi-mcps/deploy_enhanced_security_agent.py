@@ -30,7 +30,9 @@ import os
 import sys
 
 # Add the parent directory to the path to import deployment utilities
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'deployment-scripts'))
+sys.path.append(
+    os.path.join(os.path.dirname(__file__), "..", "..", "deployment-scripts")
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,14 +40,14 @@ logger = logging.getLogger(__name__)
 
 class EnhancedSecurityAgentDeployer:
     """Deploys Enhanced Security Agent with Multi-MCP Integration"""
-    
+
     def __init__(self, region: str = "us-east-1"):
         self.region = region
-        self.bedrock_agent = boto3.client('bedrock-agent', region_name=region)
-        self.ssm = boto3.client('ssm', region_name=region)
-        self.secrets_manager = boto3.client('secretsmanager', region_name=region)
-        self.iam = boto3.client('iam', region_name=region)
-    
+        self.bedrock_agent = boto3.client("bedrock-agent", region_name=region)
+        self.ssm = boto3.client("ssm", region_name=region)
+        self.secrets_manager = boto3.client("secretsmanager", region_name=region)
+        self.iam = boto3.client("iam", region_name=region)
+
     def create_agent_configuration(self) -> Dict[str, Any]:
         """Create enhanced agent configuration"""
         return {
@@ -55,7 +57,7 @@ class EnhancedSecurityAgentDeployer:
             "instruction": """You are an Enhanced AWS Security Expert with access to multiple specialized MCP servers:
 
 1. **Security MCP Server**: Real-time AWS security assessments and findings
-2. **AWS Knowledge MCP Server**: Official AWS documentation and best practices  
+2. **AWS Knowledge MCP Server**: Official AWS documentation and best practices
 3. **AWS API MCP Server**: Direct AWS service interactions and detailed resource analysis
 
 Your role is to provide comprehensive security guidance by intelligently orchestrating these MCP servers to deliver:
@@ -94,32 +96,29 @@ Your role is to provide comprehensive security guidance by intelligently orchest
 Focus on being a comprehensive AWS security advisor that combines the power of real-time assessment, authoritative knowledge, and deep technical analysis.""",
             "idleSessionTTLInSeconds": 1800,
             "agentResourceRoleArn": None,  # Will be set during deployment
-
             "tags": {
                 "Project": "Enhanced-Security-Agent",
                 "MCP-Integration": "Multi-Server",
-                "Version": "1.0.0"
-            }
+                "Version": "1.0.0",
+            },
         }
-    
+
     def create_agent_role(self) -> str:
         """Create IAM role for the enhanced agent"""
         role_name = "EnhancedSecurityAgentRole"
-        
+
         # Trust policy for Bedrock
         trust_policy = {
             "Version": "2012-10-17",
             "Statement": [
                 {
                     "Effect": "Allow",
-                    "Principal": {
-                        "Service": "bedrock.amazonaws.com"
-                    },
-                    "Action": "sts:AssumeRole"
+                    "Principal": {"Service": "bedrock.amazonaws.com"},
+                    "Action": "sts:AssumeRole",
                 }
-            ]
+            ],
         }
-        
+
         # Permissions policy
         permissions_policy = {
             "Version": "2012-10-17",
@@ -128,223 +127,229 @@ Focus on being a comprehensive AWS security advisor that combines the power of r
                     "Effect": "Allow",
                     "Action": [
                         "bedrock:InvokeModel",
-                        "bedrock:InvokeModelWithResponseStream"
+                        "bedrock:InvokeModelWithResponseStream",
                     ],
-                    "Resource": [
-                        f"arn:aws:bedrock:{self.region}::foundation-model/*"
-                    ]
+                    "Resource": [f"arn:aws:bedrock:{self.region}::foundation-model/*"],
                 },
                 {
                     "Effect": "Allow",
                     "Action": [
                         "ssm:GetParameter",
                         "ssm:GetParameters",
-                        "ssm:GetParametersByPath"
+                        "ssm:GetParametersByPath",
                     ],
                     "Resource": [
                         f"arn:aws:ssm:{self.region}:*:parameter/enhanced_security_agent/*",
-                        f"arn:aws:ssm:{self.region}:*:parameter/wa_security_direct_mcp/*"
-                    ]
+                        f"arn:aws:ssm:{self.region}:*:parameter/wa_security_direct_mcp/*",
+                    ],
                 },
                 {
                     "Effect": "Allow",
-                    "Action": [
-                        "secretsmanager:GetSecretValue"
-                    ],
+                    "Action": ["secretsmanager:GetSecretValue"],
                     "Resource": [
                         f"arn:aws:secretsmanager:{self.region}:*:secret:enhanced_security_agent/*",
-                        f"arn:aws:secretsmanager:{self.region}:*:secret:wa_security_direct_mcp/*"
-                    ]
+                        f"arn:aws:secretsmanager:{self.region}:*:secret:wa_security_direct_mcp/*",
+                    ],
                 },
                 {
                     "Effect": "Allow",
                     "Action": [
                         "logs:CreateLogGroup",
                         "logs:CreateLogStream",
-                        "logs:PutLogEvents"
+                        "logs:PutLogEvents",
                     ],
-                    "Resource": f"arn:aws:logs:{self.region}:*:log-group:/aws/bedrock/agents/*"
-                }
-            ]
+                    "Resource": f"arn:aws:logs:{self.region}:*:log-group:/aws/bedrock/agents/*",
+                },
+            ],
         }
-        
+
         try:
             # Create role
             response = self.iam.create_role(
                 RoleName=role_name,
                 AssumeRolePolicyDocument=json.dumps(trust_policy),
-                Description="IAM role for Enhanced Security Agent with Multi-MCP Integration"
+                Description="IAM role for Enhanced Security Agent with Multi-MCP Integration",
             )
-            role_arn = response['Role']['Arn']
-            
+            role_arn = response["Role"]["Arn"]
+
             # Attach permissions policy
             self.iam.put_role_policy(
                 RoleName=role_name,
                 PolicyName="EnhancedSecurityAgentPermissions",
-                PolicyDocument=json.dumps(permissions_policy)
+                PolicyDocument=json.dumps(permissions_policy),
             )
-            
+
             logger.info(f"Created IAM role: {role_arn}")
             return role_arn
-            
+
         except self.iam.exceptions.EntityAlreadyExistsException:
             # Role already exists, get its ARN
             response = self.iam.get_role(RoleName=role_name)
-            role_arn = response['Role']['Arn']
+            role_arn = response["Role"]["Arn"]
             logger.info(f"Using existing IAM role: {role_arn}")
             return role_arn
-    
+
     def store_configuration_parameters(self):
         """Store configuration parameters in SSM Parameter Store"""
         parameters = {
-            "/enhanced_security_agent/development/feature_flags": json.dumps({
-                "multi_mcp_orchestration": True,
-                "parallel_tool_execution": True,
-                "enhanced_response_formatting": True,
-                "session_context_management": True,
-                "automated_remediation": False,
-                "comprehensive_reporting": True,
-                "health_monitoring": True
-            }),
-            "/enhanced_security_agent/development/mcp_servers": json.dumps({
-                "security": {
-                    "enabled": True,
-                    "connection_type": "agentcore",
-                    "timeout": 120
-                },
-                "aws_knowledge": {
-                    "enabled": True,
-                    "connection_type": "direct",
-                    "timeout": 60
-                },
-                "aws_api": {
-                    "enabled": False,  # Will be enabled when AWS API MCP is deployed
-                    "connection_type": "api",
-                    "timeout": 180
+            "/enhanced_security_agent/development/feature_flags": json.dumps(
+                {
+                    "multi_mcp_orchestration": True,
+                    "parallel_tool_execution": True,
+                    "enhanced_response_formatting": True,
+                    "session_context_management": True,
+                    "automated_remediation": False,
+                    "comprehensive_reporting": True,
+                    "health_monitoring": True,
                 }
-            })
+            ),
+            "/enhanced_security_agent/development/mcp_servers": json.dumps(
+                {
+                    "security": {
+                        "enabled": True,
+                        "connection_type": "agentcore",
+                        "timeout": 120,
+                    },
+                    "aws_knowledge": {
+                        "enabled": True,
+                        "connection_type": "direct",
+                        "timeout": 60,
+                    },
+                    "aws_api": {
+                        "enabled": False,  # Will be enabled when AWS API MCP is deployed
+                        "connection_type": "api",
+                        "timeout": 180,
+                    },
+                }
+            ),
         }
-        
+
         for param_name, param_value in parameters.items():
             try:
                 self.ssm.put_parameter(
                     Name=param_name,
                     Value=param_value,
-                    Type='String',
+                    Type="String",
                     Overwrite=True,
-                    Description=f"Configuration for Enhanced Security Agent: {param_name.split('/')[-1]}"
+                    Description=f"Configuration for Enhanced Security Agent: {param_name.split('/')[-1]}",
                 )
                 logger.info(f"Stored parameter: {param_name}")
             except Exception as e:
                 logger.error(f"Failed to store parameter {param_name}: {e}")
-    
+
     def deploy_agent(self) -> str:
         """Deploy the enhanced security agent"""
         try:
             # Create IAM role
             role_arn = self.create_agent_role()
-            
+
             # Store configuration parameters
             self.store_configuration_parameters()
-            
+
             # Create agent configuration
             agent_config = self.create_agent_configuration()
             agent_config["agentResourceRoleArn"] = role_arn
-            
+
             # Create the agent
             response = self.bedrock_agent.create_agent(**agent_config)
-            agent_id = response['agent']['agentId']
-            
+            agent_id = response["agent"]["agentId"]
+
             logger.info(f"Created Enhanced Security Agent: {agent_id}")
-            
+
             # Prepare the agent (this creates a version)
             prepare_response = self.bedrock_agent.prepare_agent(agentId=agent_id)
             logger.info(f"Prepared agent version: {prepare_response['agentStatus']}")
-            
+
             # Create an alias
             alias_response = self.bedrock_agent.create_agent_alias(
                 agentId=agent_id,
                 agentAliasName="enhanced-security-multi-mcp",
-                description="Enhanced Security Agent with Multi-MCP Integration"
+                description="Enhanced Security Agent with Multi-MCP Integration",
             )
-            alias_id = alias_response['agentAlias']['agentAliasId']
-            
+            alias_id = alias_response["agentAlias"]["agentAliasId"]
+
             logger.info(f"Created agent alias: {alias_id}")
-            
+
             # Store agent information in SSM
             self.ssm.put_parameter(
                 Name="/enhanced_security_agent/runtime/agent_id",
                 Value=agent_id,
-                Type='String',
+                Type="String",
                 Overwrite=True,
-                Description="Enhanced Security Agent ID"
+                Description="Enhanced Security Agent ID",
             )
-            
+
             self.ssm.put_parameter(
                 Name="/enhanced_security_agent/runtime/agent_alias_id",
                 Value=alias_id,
-                Type='String',
+                Type="String",
                 Overwrite=True,
-                Description="Enhanced Security Agent Alias ID"
+                Description="Enhanced Security Agent Alias ID",
             )
-            
+
             return agent_id
-            
+
         except Exception as e:
             logger.error(f"Failed to deploy Enhanced Security Agent: {e}")
             raise
-    
+
     def validate_deployment(self, agent_id: str) -> bool:
         """Validate the agent deployment"""
         try:
             # Get agent details
             response = self.bedrock_agent.get_agent(agentId=agent_id)
-            agent_status = response['agent']['agentStatus']
-            
-            if agent_status in ['CREATING', 'UPDATING', 'PREPARING']:
+            agent_status = response["agent"]["agentStatus"]
+
+            if agent_status in ["CREATING", "UPDATING", "PREPARING"]:
                 logger.info(f"Agent is still being prepared: {agent_status}")
                 return False
-            elif agent_status == 'PREPARED':
+            elif agent_status == "PREPARED":
                 logger.info("Agent deployment validated successfully")
                 return True
             else:
                 logger.error(f"Agent deployment failed with status: {agent_status}")
                 return False
-                
+
         except Exception as e:
             logger.error(f"Failed to validate deployment: {e}")
             return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy Enhanced Security Agent with Multi-MCP Integration")
-    parser.add_argument("--region", default="us-east-1", help="AWS region for deployment")
-    parser.add_argument("--validate", action="store_true", help="Validate existing deployment")
+    parser = argparse.ArgumentParser(
+        description="Deploy Enhanced Security Agent with Multi-MCP Integration"
+    )
+    parser.add_argument(
+        "--region", default="us-east-1", help="AWS region for deployment"
+    )
+    parser.add_argument(
+        "--validate", action="store_true", help="Validate existing deployment"
+    )
     parser.add_argument("--agent-id", help="Agent ID for validation")
-    
+
     args = parser.parse_args()
-    
+
     deployer = EnhancedSecurityAgentDeployer(region=args.region)
-    
+
     if args.validate and args.agent_id:
         success = deployer.validate_deployment(args.agent_id)
         if success:
-            print(f"✅ Enhanced Security Agent deployment validated successfully")
+            print("✅ Enhanced Security Agent deployment validated successfully")
         else:
-            print(f"❌ Enhanced Security Agent deployment validation failed")
+            print("❌ Enhanced Security Agent deployment validation failed")
             sys.exit(1)
     else:
         try:
             agent_id = deployer.deploy_agent()
-            print(f"✅ Enhanced Security Agent deployed successfully!")
+            print("✅ Enhanced Security Agent deployed successfully!")
             print(f"Agent ID: {agent_id}")
             print(f"Region: {args.region}")
-            print(f"\nNext steps:")
-            print(f"1. Wait for agent preparation to complete")
-            print(f"2. Test the agent with multi-MCP queries")
-            print(f"3. Monitor CloudWatch logs for performance metrics")
-            print(f"4. Configure additional MCP servers as needed")
-            
+            print("\nNext steps:")
+            print("1. Wait for agent preparation to complete")
+            print("2. Test the agent with multi-MCP queries")
+            print("3. Monitor CloudWatch logs for performance metrics")
+            print("4. Configure additional MCP servers as needed")
+
         except Exception as e:
             print(f"❌ Deployment failed: {e}")
             sys.exit(1)

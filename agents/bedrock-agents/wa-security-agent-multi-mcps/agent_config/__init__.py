@@ -20,6 +20,6 @@ Enhanced Security Agent Package
 Multi-MCP integration for comprehensive AWS security assessments
 """
 
-from .enhanced_security_agent import EnhancedSecurityAgent
+from .wa_security_agent import EnhancedSecurityAgent
 
-__all__ = ['EnhancedSecurityAgent']
+__all__ = ["EnhancedSecurityAgent"]

@@ -176,7 +176,7 @@ async def check_security_services(
                 f"[DEBUG:CheckSecurityServices] Starting security services check for region: {region}"
             )
             print(f"[DEBUG:CheckSecurityServices] Services to check: {', '.join(services)}")
-            print(f"[DEBUG:CheckSecurityServices] Using default AWS credentials chain")
+            print("[DEBUG:CheckSecurityServices] Using default AWS credentials chain")
 
         # Create a session using the default AWS credentials chain (IAM role, environment variables, etc.)
         session = boto3.Session()
@@ -597,7 +597,7 @@ async def check_storage_encryption_tool(
     try:
         print(f"Starting storage encryption check for region: {region}")
         print(f"Services to check: {', '.join(services)}")
-        print(f"Using default AWS credentials chain")
+        print("Using default AWS credentials chain")
 
         # Create a session using the default AWS credentials chain
         session = boto3.Session()
@@ -647,7 +647,7 @@ async def list_services_in_region_tool(
     - Read permissions for various AWS services
     """
     print(f"Starting service discovery for region: {region}")
-    print(f"Using default AWS credentials chain")
+    print("Using default AWS credentials chain")
 
     # Create a session using the default AWS credentials chain
     session = boto3.Session()
@@ -712,7 +712,7 @@ async def check_network_security_tool(
     try:
         print(f"Starting network security check for region: {region}")
         print(f"Services to check: {', '.join(services)}")
-        print(f"Using default AWS credentials chain")
+        print("Using default AWS credentials chain")
 
         # Create a session using the default AWS credentials chain
         session = boto3.Session()
@@ -1136,7 +1136,11 @@ def main():
     """Run the MCP server with CLI argument support."""
     parser = argparse.ArgumentParser(description="AWS Security Pillar MCP Server")
     parser.add_argument("--sse", action="store_true", help="Use SSE transport")
-    parser.add_argument("--streamable-http", action="store_true", help="Use streamable-http transport (for AgentCore Runtime)")
+    parser.add_argument(
+        "--streamable-http",
+        action="store_true",
+        help="Use streamable-http transport (for AgentCore Runtime)",
+    )
     parser.add_argument("--port", type=int, default=8888, help="Port to run the server on")
 
     args = parser.parse_args()
@@ -1149,7 +1153,7 @@ def main():
         logger.info("Set default AWS_REGION to us-east-1")
 
     # Run server with appropriate transport
-    if getattr(args, 'streamable_http', False):
+    if getattr(args, "streamable_http", False):
         logger.info("Running MCP server with streamable-http transport for AgentCore Runtime")
         mcp.run(transport="streamable-http")
     elif args.sse:

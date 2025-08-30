@@ -4,7 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🛡️ AWS Well-Architected Security Assistant</title>
+    <title>🛡️ AWS Cloud Optimization Assistant</title>
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1563.0.min.js"></script>
     <script src="https://unpkg.com/amazon-cognito-identity-js@6.3.12/dist/amazon-cognito-identity.min.js"></script>
     <script src="config.js"></script>
@@ -126,6 +128,71 @@
             box-shadow: none;
         }
 
+        .connection-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #dc3545;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: #28a745;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .test-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .test-btn {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .test-btn:hover {
+            background: #0056b3;
+            transform: translateY(-1px);
+        }
+
         .user-info {
             display: flex;
             justify-content: space-between;
@@ -194,6 +261,121 @@
             border: 1px solid #e0e0e0;
             line-height: 1.6;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Markdown styling for message content */
+        .message-content h1,
+        .message-content h2,
+        .message-content h3,
+        .message-content h4,
+        .message-content h5,
+        .message-content h6 {
+            margin: 16px 0 8px 0;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+
+        .message-content h1 {
+            font-size: 1.5em;
+        }
+
+        .message-content h2 {
+            font-size: 1.3em;
+        }
+
+        .message-content h3 {
+            font-size: 1.1em;
+        }
+
+        .message-content h4 {
+            font-size: 1em;
+        }
+
+        .message-content p {
+            margin: 8px 0;
+        }
+
+        .message-content ul,
+        .message-content ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+
+        .message-content li {
+            margin: 4px 0;
+        }
+
+        .message-content blockquote {
+            margin: 16px 0;
+            padding: 8px 16px;
+            border-left: 4px solid #ddd;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 0 8px 8px 0;
+        }
+
+        .message-content code {
+            background: rgba(0, 0, 0, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .message-content pre {
+            background: rgba(0, 0, 0, 0.05);
+            padding: 12px 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 12px 0;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+
+        .message-content pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .message-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 12px 0;
+        }
+
+        .message-content th,
+        .message-content td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+
+        .message-content th {
+            background: rgba(0, 0, 0, 0.05);
+            font-weight: 600;
+        }
+
+        .message-content a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        .message-content a:hover {
+            text-decoration: underline;
+        }
+
+        .message-content strong {
+            font-weight: 600;
+        }
+
+        .message-content em {
+            font-style: italic;
+        }
+
+        .message-content hr {
+            border: none;
+            border-top: 1px solid #ddd;
+            margin: 16px 0;
         }
 
         .user .message-content {
@@ -371,9 +553,19 @@
 
             <!-- Chat Container -->
             <div id="chatContainer" class="chat-container">
-                <div class="user-info">
-                    <span class="user-email" id="userEmail"></span>
-                    <button onclick="logout()" class="logout-btn">Logout</button>
+                <div class="connection-status">
+                    <div class="status-indicator">
+                        <div class="status-dot connected" id="statusDot"></div>
+                        <span id="statusText">Connected to AWS Security Assistant</span>
+                    </div>
+                    <div class="test-buttons">
+                        <button class="test-btn" onclick="testSecurityServices()">Security Services</button>
+                        <button class="test-btn" onclick="testSecurityFindings()">Security Findings</button>
+                        <button class="test-btn" onclick="testStorageEncryption()">Storage Encryption</button>
+                        <button class="test-btn" onclick="clearMessages()">Clear Chat</button>
+                        <span class="user-email" id="userEmail"></span>
+                        <button onclick="logout()" class="logout-btn">Logout</button>
+                    </div>
                 </div>
 
                 <div id="messages" class="chat-messages"></div>
@@ -501,8 +693,48 @@
             document.getElementById('chatContainer').style.display = 'flex';
             document.getElementById('userEmail').textContent = currentUser.email;
 
-            // Add welcome message
-            addMessage('assistant', 'Welcome to the AWS Well-Architected Security Assistant! 🛡️\n\nI can help you analyze your AWS security posture. Try asking:\n\n• "Check my security services"\n• "What are my security findings?"\n• "Analyze my storage encryption"\n• "Review my network security"');
+            // Add welcome message with enhanced markdown
+            const welcomeMessage = `# Welcome to the AWS Well-Architected Security Assistant! 🛡️
+
+I can help you analyze your AWS security posture with **comprehensive markdown support**!
+
+## Quick Actions:
+- **"Check my security services"** - Verify enabled security services
+- **"What are my security findings?"** - Review security issues
+- **"Analyze my storage encryption"** - Check data protection at rest
+- **"Review my network security"** - Examine data protection in transit
+
+### Features:
+- **Rich markdown formatting** with tables, lists, and code blocks
+- **Interactive JSON data** with collapsible sections
+- **Real-time security analysis** powered by AWS Well-Architected Framework
+- **Structured recommendations** for security improvements
+
+Try the quick action buttons above or ask me anything about your AWS security!`;
+
+            addMessage('assistant', welcomeMessage);
+        }
+
+        function testSecurityServices() {
+            sendTestMessage("Check my security services");
+        }
+
+        function testSecurityFindings() {
+            sendTestMessage("What are my security findings?");
+        }
+
+        function testStorageEncryption() {
+            sendTestMessage("Analyze my storage encryption");
+        }
+
+        function sendTestMessage(message) {
+            document.getElementById('messageInput').value = message;
+            sendMessage();
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+            addMessage('assistant', '🧹 **Chat cleared.** Ready for new conversation with full markdown support!');
         }
 
         function addMessage(role, content, toolExecutions = [], structuredData = null, humanSummary = null) {
@@ -517,8 +749,8 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
 
-            // Process content for JSON sections and markdown
-            let processedContent = processContentWithJSON(content, structuredData, humanSummary);
+            // Process content with enhanced markdown and JSON sections
+            let processedContent = processContentWithMarkdown(content, structuredData, humanSummary);
             contentDiv.innerHTML = processedContent;
 
             messageDiv.appendChild(avatar);
@@ -536,21 +768,21 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
-        function processContentWithJSON(content, structuredData = null, humanSummary = null) {
-            // First, handle basic markdown formatting
-            let formattedContent = content
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\n/g, '<br>');
+        function processContentWithMarkdown(content, structuredData = null, humanSummary = null) {
+            // Clean up escaped newlines and prepare content for markdown parsing
+            let cleanContent = content.replace(/\\n/g, '\n');
 
-            // Look for JSON code blocks in the content
+            // Extract JSON code blocks before markdown processing to handle them specially
+            const jsonBlocks = [];
             const jsonBlockRegex = /```json\n([\s\S]*?)\n```/g;
             let match;
-            let processedContent = formattedContent;
+            let contentWithPlaceholders = cleanContent;
 
-            while ((match = jsonBlockRegex.exec(formattedContent)) !== null) {
+            while ((match = jsonBlockRegex.exec(cleanContent)) !== null) {
                 try {
                     const jsonString = match[1];
                     const jsonData = JSON.parse(jsonString);
+                    const placeholder = `__JSON_BLOCK_${jsonBlocks.length}__`;
 
                     // Generate human-readable summary
                     const summary = generateJSONSummary(jsonData);
@@ -558,16 +790,39 @@
                     // Create collapsible section
                     const collapsibleSection = createCollapsibleJSONSection(jsonData, summary, 'Analysis Results');
 
-                    // Replace the JSON block with the collapsible section
-                    processedContent = processedContent.replace(match[0], collapsibleSection);
+                    jsonBlocks.push(collapsibleSection);
+                    contentWithPlaceholders = contentWithPlaceholders.replace(match[0], placeholder);
                 } catch (e) {
-                    // If JSON parsing fails, keep the original code block
-                    processedContent = processedContent.replace(match[0], `<pre>${match[1]}</pre>`);
+                    // If JSON parsing fails, let markdown handle it as a regular code block
                 }
             }
 
-            // Handle other code blocks
-            processedContent = processedContent.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
+            // Parse markdown
+            let processedContent;
+            try {
+                // Configure marked for better security and formatting
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    sanitize: false, // We control the input
+                    smartLists: true,
+                    smartypants: false
+                });
+
+                processedContent = marked.parse(contentWithPlaceholders);
+            } catch (e) {
+                // Fallback to basic processing if marked fails
+                processedContent = contentWithPlaceholders
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/\n/g, '<br>');
+            }
+
+            // Restore JSON blocks
+            jsonBlocks.forEach((block, index) => {
+                const placeholder = `__JSON_BLOCK_${index}__`;
+                processedContent = processedContent.replace(placeholder, block);
+            });
 
             // If we have structured data from the backend, add it as a collapsible section
             if (structuredData) {

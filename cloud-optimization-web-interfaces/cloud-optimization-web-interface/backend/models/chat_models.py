@@ -8,10 +8,12 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
 
+
 class ToolExecutionStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
     PENDING = "pending"
+
 
 class ToolExecution(BaseModel):
     tool_name: str
@@ -24,17 +26,20 @@ class ToolExecution(BaseModel):
     tool_input: Optional[Dict[str, Any]] = None
     tool_output: Optional[str] = None
 
+
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
     timestamp: datetime
     tool_executions: List[ToolExecution] = []
 
+
 class ChatSession(BaseModel):
     session_id: str
     created_at: datetime
     messages: List[ChatMessage]
     context: Dict[str, Any] = {}
+
 
 class BedrockResponse(BaseModel):
     response: str
@@ -44,8 +49,8 @@ class BedrockResponse(BaseModel):
     timestamp: datetime = None
     model_id: Optional[str] = None
     session_id: Optional[str] = None
-    
+
     def __init__(self, **data):
-        if 'timestamp' not in data:
-            data['timestamp'] = datetime.utcnow()
+        if "timestamp" not in data:
+            data["timestamp"] = datetime.utcnow()
         super().__init__(**data)

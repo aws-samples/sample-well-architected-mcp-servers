@@ -17,10 +17,11 @@
 """
 Enhanced Security Agent with AWS Knowledge Integration
 Combines Claude 3.7 Sonnet with:
-- Well-Architected Security MCP Server (real-time AWS security data) 
+- Well-Architected Security MCP Server (real-time AWS security data)
 - AWS Knowledge MCP Server (AWS documentation and best practices)
 - AWS API MCP Server (awslabs.aws-api-mcp-server)
 """
+
 import asyncio
 import json
 import boto3
@@ -46,280 +47,315 @@ logger = logging.getLogger(__name__)
 #     "client_id": "45nt8eq6rlltg7acouib9m79ej"
 # }
 
+
 class EnhancedSecurityAgent(Agent):
     """
     Enhanced Security Agent with AWS Knowledge Integration
     Combines real-time security assessments with AWS documentation and best practices
     """
-    
+
     def __init__(
         self,
         bearer_token: str,
         memory_hook: MemoryHook,
         model_id: str = "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
         region: str = "us-east-1",
-        **kwargs
+        **kwargs,
     ):
         """Initialize the Enhanced Security Agent with AWS Knowledge integration"""
         super().__init__(
             bearer_token=bearer_token,
             memory_hook=memory_hook,
             model_id=model_id,
-            **kwargs
+            **kwargs,
         )
-        
+
         self.region = region
         self.mcp_connections = {}
         self.all_tools = []
-        
+
         # Initialize response transformer
         self.response_transformer = SecurityResponseTransformer()
-        
+
         # Store responses for comprehensive analysis
         self.session_responses = []
-        
+
         # Initialize MCP connections
         asyncio.create_task(self._initialize_all_mcp_connections())
-    
+
     async def _initialize_all_mcp_connections(self):
         """Initialize connections to all MCP servers"""
         try:
             logger.info("Initializing connections to all MCP servers...")
-            
+
             # Initialize Security MCP Server (AgentCore runtime)
             await self._initialize_security_mcp()
-            
+
             # Initialize AWS Knowledge MCP Server (direct connection)
             await self._initialize_aws_knowledge_mcp()
-            
-            logger.info(f"✅ All MCP connections initialized with {len(self.all_tools)} total tools")
-            
+
+            logger.info(
+                f"✅ All MCP connections initialized with {len(self.all_tools)} total tools"
+            )
+
         except Exception as e:
             logger.error(f"Failed to initialize MCP connections: {e}")
-    
+
     async def _initialize_security_mcp(self):
         """Initialize connection to the Well-Architected Security MCP Server"""
         try:
             logger.info("Initializing Security MCP connection...")
-            
+
             # Get MCP server credentials from AgentCore deployment
-            ssm_client = boto3.client('ssm', region_name=self.region)
-            secrets_client = boto3.client('secretsmanager', region_name=self.region)
-            
+            ssm_client = boto3.client("ssm", region_name=self.region)
+            secrets_client = boto3.client("secretsmanager", region_name=self.region)
+
             # Get AgentCore Runtime (WA SEC MCP Server)
-            agent_arn_response = ssm_client.get_parameter(Name='/coa/mcp/wa_security_mcp/runtime/agent_arn')
-            agent_arn = agent_arn_response['Parameter']['Value']
-            
+            agent_arn_response = ssm_client.get_parameter(
+                Name="/coa/mcp/wa_security_mcp/runtime/agent_arn"
+            )
+            agent_arn = agent_arn_response["Parameter"]["Value"]
+
             # Get bearer token
-            response = secrets_client.get_secret_value(SecretId='/coa/mcp/wa_security_mcp/cognito/credentials')
-            secret_value = response['SecretString']
+            response = secrets_client.get_secret_value(
+                SecretId="/coa/mcp/wa_security_mcp/cognito/credentials"
+            )
+            secret_value = response["SecretString"]
             parsed_secret = json.loads(secret_value)
-            bearer_token = parsed_secret['bearer_token']
-            
+            bearer_token = parsed_secret["bearer_token"]
+
             # Build MCP connection details
-            encoded_arn = agent_arn.replace(':', '%3A').replace('/', '%2F')
+            encoded_arn = agent_arn.replace(":", "%3A").replace("/", "%2F")
             mcp_url = f"https://bedrock-agentcore.{self.region}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
             mcp_headers = {
                 "authorization": f"Bearer {bearer_token}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
-            
+
             # Store connection details
-            self.mcp_connections['security'] = {
-                'url': mcp_url,
-                'headers': mcp_headers,
-                'tools': [],
-                'type': 'agentcore'
+            self.mcp_connections["security"] = {
+                "url": mcp_url,
+                "headers": mcp_headers,
+                "tools": [],
+                "type": "agentcore",
             }
-            
+
             # Discover tools
-            await self._discover_mcp_tools('security')
-            
-            logger.info(f"✅ Security MCP initialized with {len(self.mcp_connections['security']['tools'])} tools")
-            
+            await self._discover_mcp_tools("security")
+
+            logger.info(
+                f"✅ Security MCP initialized with {len(self.mcp_connections['security']['tools'])} tools"
+            )
+
         except Exception as e:
             logger.error(f"Failed to initialize Security MCP: {e}")
             # Create empty connection to prevent errors
-            self.mcp_connections['security'] = {'url': None, 'headers': None, 'tools': [], 'type': 'agentcore'}
-    
+            self.mcp_connections["security"] = {
+                "url": None,
+                "headers": None,
+                "tools": [],
+                "type": "agentcore",
+            }
+
     async def _initialize_aws_knowledge_mcp(self):
         """Initialize connection to the AWS Knowledge MCP Server (public server)"""
         try:
             logger.info("Initializing AWS Knowledge MCP connection...")
-            
+
             # AWS Knowledge MCP Server runs as a public service
             # We'll use the MCP tools available in this environment
-            self.mcp_connections['aws_knowledge'] = {
-                'tools': [
+            self.mcp_connections["aws_knowledge"] = {
+                "tools": [
                     {
-                        'name': 'search_documentation',
-                        'description': 'Search AWS documentation for relevant information',
-                        'mcp_server': 'aws_knowledge'
+                        "name": "search_documentation",
+                        "description": "Search AWS documentation for relevant information",
+                        "mcp_server": "aws_knowledge",
                     },
                     {
-                        'name': 'read_documentation',
-                        'description': 'Read specific AWS documentation pages',
-                        'mcp_server': 'aws_knowledge'
+                        "name": "read_documentation",
+                        "description": "Read specific AWS documentation pages",
+                        "mcp_server": "aws_knowledge",
                     },
                     {
-                        'name': 'recommend',
-                        'description': 'Get content recommendations for AWS documentation',
-                        'mcp_server': 'aws_knowledge'
-                    }
+                        "name": "recommend",
+                        "description": "Get content recommendations for AWS documentation",
+                        "mcp_server": "aws_knowledge",
+                    },
                 ],
-                'type': 'direct'
+                "type": "direct",
             }
-            
-            self.all_tools.extend(self.mcp_connections['aws_knowledge']['tools'])
-            
-            logger.info(f"✅ AWS Knowledge MCP initialized with {len(self.mcp_connections['aws_knowledge']['tools'])} tools")
-            
+
+            self.all_tools.extend(self.mcp_connections["aws_knowledge"]["tools"])
+
+            logger.info(
+                f"✅ AWS Knowledge MCP initialized with {len(self.mcp_connections['aws_knowledge']['tools'])} tools"
+            )
+
         except Exception as e:
             logger.error(f"Failed to initialize AWS Knowledge MCP: {e}")
-    
+
     async def _discover_mcp_tools(self, mcp_name: str):
         """Discover available MCP tools for a specific MCP server"""
         try:
             connection = self.mcp_connections[mcp_name]
-            
-            if connection['type'] == 'agentcore' and connection['url']:
+
+            if connection["type"] == "agentcore" and connection["url"]:
                 async with streamablehttp_client(
-                    connection['url'], 
-                    connection['headers'], 
-                    timeout=timedelta(seconds=60)
+                    connection["url"],
+                    connection["headers"],
+                    timeout=timedelta(seconds=60),
                 ) as (read_stream, write_stream, _):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
                         tool_result = await session.list_tools()
-                        
+
                         tools = [
                             {
                                 "name": tool.name,
                                 "description": tool.description,
-                                "parameters": tool.inputSchema.get("properties", {}) if hasattr(tool, 'inputSchema') and tool.inputSchema else {},
-                                "mcp_server": mcp_name
+                                "parameters": tool.inputSchema.get("properties", {})
+                                if hasattr(tool, "inputSchema") and tool.inputSchema
+                                else {},
+                                "mcp_server": mcp_name,
                             }
                             for tool in tool_result.tools
                         ]
-                        
-                        connection['tools'] = tools
+
+                        connection["tools"] = tools
                         self.all_tools.extend(tools)
-                        
+
         except Exception as e:
             logger.error(f"Failed to discover tools for {mcp_name}: {e}")
-            self.mcp_connections[mcp_name]['tools'] = []
-    
-    async def _call_security_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
+            self.mcp_connections[mcp_name]["tools"] = []
+
+    async def _call_security_mcp_tool(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> Optional[str]:
         """Call a tool on the Security MCP Server (AgentCore runtime)"""
         try:
-            connection = self.mcp_connections['security']
-            
-            if not connection['url']:
+            connection = self.mcp_connections["security"]
+
+            if not connection["url"]:
                 return "Security MCP Server not available"
-            
+
             async with streamablehttp_client(
-                connection['url'], 
-                connection['headers'], 
-                timeout=timedelta(seconds=120)
+                connection["url"], connection["headers"], timeout=timedelta(seconds=120)
             ) as (read_stream, write_stream, _):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
-                    result = await session.call_tool(name=tool_name, arguments=arguments)
+                    result = await session.call_tool(
+                        name=tool_name, arguments=arguments
+                    )
                     raw_response = result.content[0].text
-                    
+
                     # Transform the response for human readability
                     transformed_response = self.response_transformer.transform_response(
-                        tool_name=tool_name,
-                        raw_response=raw_response,
-                        user_query=""
+                        tool_name=tool_name, raw_response=raw_response, user_query=""
                     )
-                    
+
                     return transformed_response
-                    
+
         except Exception as e:
             logger.error(f"Failed to call Security MCP tool {tool_name}: {e}")
             return f"Error calling {tool_name}: {str(e)}"
-    
-    async def _call_aws_knowledge_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
+
+    async def _call_aws_knowledge_tool(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> Optional[str]:
         """Call a tool on the AWS Knowledge MCP Server (direct integration)"""
         try:
             logger.info(f"Calling AWS Knowledge tool: {tool_name}")
-            
-            if tool_name == 'search_documentation':
+
+            if tool_name == "search_documentation":
                 # Use the available AWS Knowledge MCP tools
-                from mcp_aws_knowledge_mcp_server_aws___search_documentation import mcp_aws_knowledge_mcp_server_aws___search_documentation
-                result = mcp_aws_knowledge_mcp_server_aws___search_documentation(**arguments)
+                from mcp_aws_knowledge_mcp_server_aws___search_documentation import (
+                    mcp_aws_knowledge_mcp_server_aws___search_documentation,
+                )
+
+                result = mcp_aws_knowledge_mcp_server_aws___search_documentation(
+                    **arguments
+                )
                 return self._format_documentation_search_result(result)
-                
-            elif tool_name == 'read_documentation':
-                from mcp_aws_knowledge_mcp_server_aws___read_documentation import mcp_aws_knowledge_mcp_server_aws___read_documentation
-                result = mcp_aws_knowledge_mcp_server_aws___read_documentation(**arguments)
+
+            elif tool_name == "read_documentation":
+                from mcp_aws_knowledge_mcp_server_aws___read_documentation import (
+                    mcp_aws_knowledge_mcp_server_aws___read_documentation,
+                )
+
+                result = mcp_aws_knowledge_mcp_server_aws___read_documentation(
+                    **arguments
+                )
                 return self._format_documentation_content(result)
-                
-            elif tool_name == 'recommend':
-                from mcp_aws_knowledge_mcp_server_aws___recommend import mcp_aws_knowledge_mcp_server_aws___recommend
+
+            elif tool_name == "recommend":
+                from mcp_aws_knowledge_mcp_server_aws___recommend import (
+                    mcp_aws_knowledge_mcp_server_aws___recommend,
+                )
+
                 result = mcp_aws_knowledge_mcp_server_aws___recommend(**arguments)
                 return self._format_documentation_recommendations(result)
-            
+
             return "AWS Knowledge tool not available"
-            
+
         except Exception as e:
             logger.error(f"Failed to call AWS Knowledge tool {tool_name}: {e}")
             return f"Error accessing AWS documentation: {str(e)}"
-    
+
     def _format_documentation_search_result(self, result: Dict) -> str:
         """Format AWS documentation search results"""
-        if not result or 'response' not in result:
+        if not result or "response" not in result:
             return "No documentation found"
-        
-        content = result['response']['payload']['content']['result']
+
+        content = result["response"]["payload"]["content"]["result"]
         if not content:
             return "No relevant documentation found"
-        
+
         formatted = "📚 **AWS Documentation Search Results**\n\n"
-        
+
         for i, doc in enumerate(content[:5], 1):  # Show top 5 results
             formatted += f"**{i}. {doc['title']}**\n"
             formatted += f"🔗 {doc['url']}\n"
-            if doc.get('context'):
+            if doc.get("context"):
                 formatted += f"📝 {doc['context']}\n"
             formatted += "\n"
-        
+
         return formatted
-    
+
     def _format_documentation_content(self, result: str) -> str:
         """Format AWS documentation content"""
         if not result:
             return "No documentation content available"
-        
+
         # Truncate very long content
         if len(result) > 2000:
             result = result[:2000] + "\n\n... (content truncated for readability)"
-        
+
         return f"📖 **AWS Documentation Content**\n\n{result}"
-    
+
     def _format_documentation_recommendations(self, result: Dict) -> str:
         """Format AWS documentation recommendations"""
         if not result:
             return "No recommendations available"
-        
+
         return f"💡 **Related AWS Documentation**\n\n{json.dumps(result, indent=2)}"
-    
+
     def _get_system_prompt(self) -> str:
         """Get the enhanced system prompt with AWS Knowledge integration"""
-        security_tools = [tool for tool in self.all_tools if tool['mcp_server'] == 'security']
-        knowledge_tools = [tool for tool in self.all_tools if tool['mcp_server'] == 'aws_knowledge']
-        
-        security_tools_desc = "\n".join([
-            f"- {tool['name']}: {tool['description']}"
-            for tool in security_tools
-        ])
-        
-        knowledge_tools_desc = "\n".join([
-            f"- {tool['name']}: {tool['description']}"
-            for tool in knowledge_tools
-        ])
-        
+        security_tools = [
+            tool for tool in self.all_tools if tool["mcp_server"] == "security"
+        ]
+        knowledge_tools = [
+            tool for tool in self.all_tools if tool["mcp_server"] == "aws_knowledge"
+        ]
+
+        security_tools_desc = "\n".join(
+            [f"- {tool['name']}: {tool['description']}" for tool in security_tools]
+        )
+
+        knowledge_tools_desc = "\n".join(
+            [f"- {tool['name']}: {tool['description']}" for tool in knowledge_tools]
+        )
+
         return f"""You are an Enhanced AWS Security Expert with access to both real-time security data and comprehensive AWS documentation.
 
 Your role is to provide the most comprehensive security guidance by combining:
@@ -405,208 +441,280 @@ Every response is enhanced with:
 
 Remember: You're not just a security assessment tool - you're a comprehensive AWS security advisor that combines real-time data with the full depth of AWS knowledge and best practices."""
 
-    async def _determine_enhanced_strategy(self, user_message: str) -> List[Dict[str, Any]]:
+    async def _determine_enhanced_strategy(
+        self, user_message: str
+    ) -> List[Dict[str, Any]]:
         """Determine which tools to call for enhanced security analysis"""
         user_message_lower = user_message.lower()
         tool_calls = []
-        
+
         # Security services queries
-        if any(word in user_message_lower for word in ['security services', 'guardduty', 'security hub', 'inspector', 'enabled', 'disabled']):
+        if any(
+            word in user_message_lower
+            for word in [
+                "security services",
+                "guardduty",
+                "security hub",
+                "inspector",
+                "enabled",
+                "disabled",
+            ]
+        ):
             # Get real-time data
-            tool_calls.append({
-                'tool': 'CheckSecurityServices',
-                'mcp_server': 'security',
-                'args': {
-                    'region': self.region,
-                    'services': ['guardduty', 'securityhub', 'inspector', 'accessanalyzer', 'macie'],
-                    'debug': True,
-                    'store_in_context': True
+            tool_calls.append(
+                {
+                    "tool": "CheckSecurityServices",
+                    "mcp_server": "security",
+                    "args": {
+                        "region": self.region,
+                        "services": [
+                            "guardduty",
+                            "securityhub",
+                            "inspector",
+                            "accessanalyzer",
+                            "macie",
+                        ],
+                        "debug": True,
+                        "store_in_context": True,
+                    },
                 }
-            })
+            )
             # Get AWS documentation
-            tool_calls.append({
-                'tool': 'search_documentation',
-                'mcp_server': 'aws_knowledge',
-                'args': {
-                    'search_phrase': 'security services GuardDuty Security Hub Inspector best practices',
-                    'limit': 3
+            tool_calls.append(
+                {
+                    "tool": "search_documentation",
+                    "mcp_server": "aws_knowledge",
+                    "args": {
+                        "search_phrase": "security services GuardDuty Security Hub Inspector best practices",
+                        "limit": 3,
+                    },
                 }
-            })
-        
+            )
+
         # Storage encryption queries
-        if any(word in user_message_lower for word in ['s3', 'encryption', 'encrypted', 'storage', 'buckets', 'ebs', 'rds']):
+        if any(
+            word in user_message_lower
+            for word in [
+                "s3",
+                "encryption",
+                "encrypted",
+                "storage",
+                "buckets",
+                "ebs",
+                "rds",
+            ]
+        ):
             # Get real-time encryption data
-            tool_calls.append({
-                'tool': 'CheckStorageEncryption',
-                'mcp_server': 'security',
-                'args': {
-                    'region': self.region,
-                    'services': ['s3', 'ebs', 'rds', 'dynamodb'],
-                    'store_in_context': True
+            tool_calls.append(
+                {
+                    "tool": "CheckStorageEncryption",
+                    "mcp_server": "security",
+                    "args": {
+                        "region": self.region,
+                        "services": ["s3", "ebs", "rds", "dynamodb"],
+                        "store_in_context": True,
+                    },
                 }
-            })
+            )
             # Get AWS encryption best practices
-            tool_calls.append({
-                'tool': 'search_documentation',
-                'mcp_server': 'aws_knowledge',
-                'args': {
-                    'search_phrase': 'S3 encryption EBS encryption RDS encryption best practices',
-                    'limit': 3
+            tool_calls.append(
+                {
+                    "tool": "search_documentation",
+                    "mcp_server": "aws_knowledge",
+                    "args": {
+                        "search_phrase": "S3 encryption EBS encryption RDS encryption best practices",
+                        "limit": 3,
+                    },
                 }
-            })
-        
+            )
+
         # Network security queries
-        if any(word in user_message_lower for word in ['network', 'https', 'ssl', 'tls', 'load balancer', 'transit']):
+        if any(
+            word in user_message_lower
+            for word in ["network", "https", "ssl", "tls", "load balancer", "transit"]
+        ):
             # Get real-time network security data
-            tool_calls.append({
-                'tool': 'CheckNetworkSecurity',
-                'mcp_server': 'security',
-                'args': {
-                    'region': self.region,
-                    'services': ['elb', 'apigateway', 'cloudfront'],
-                    'store_in_context': True
+            tool_calls.append(
+                {
+                    "tool": "CheckNetworkSecurity",
+                    "mcp_server": "security",
+                    "args": {
+                        "region": self.region,
+                        "services": ["elb", "apigateway", "cloudfront"],
+                        "store_in_context": True,
+                    },
                 }
-            })
+            )
             # Get AWS network security documentation
-            tool_calls.append({
-                'tool': 'search_documentation',
-                'mcp_server': 'aws_knowledge',
-                'args': {
-                    'search_phrase': 'network security HTTPS SSL TLS load balancer best practices',
-                    'limit': 3
+            tool_calls.append(
+                {
+                    "tool": "search_documentation",
+                    "mcp_server": "aws_knowledge",
+                    "args": {
+                        "search_phrase": "network security HTTPS SSL TLS load balancer best practices",
+                        "limit": 3,
+                    },
                 }
-            })
-        
+            )
+
         # Security findings queries
-        if any(word in user_message_lower for word in ['findings', 'alerts', 'vulnerabilities', 'issues']):
+        if any(
+            word in user_message_lower
+            for word in ["findings", "alerts", "vulnerabilities", "issues"]
+        ):
             # Get real-time findings
-            tool_calls.append({
-                'tool': 'GetSecurityFindings',
-                'mcp_server': 'security',
-                'args': {
-                    'region': self.region,
-                    'service': 'guardduty',
-                    'max_findings': 10
+            tool_calls.append(
+                {
+                    "tool": "GetSecurityFindings",
+                    "mcp_server": "security",
+                    "args": {
+                        "region": self.region,
+                        "service": "guardduty",
+                        "max_findings": 10,
+                    },
                 }
-            })
+            )
             # Get AWS security incident response documentation
-            tool_calls.append({
-                'tool': 'search_documentation',
-                'mcp_server': 'aws_knowledge',
-                'args': {
-                    'search_phrase': 'security incident response vulnerability management',
-                    'limit': 3
+            tool_calls.append(
+                {
+                    "tool": "search_documentation",
+                    "mcp_server": "aws_knowledge",
+                    "args": {
+                        "search_phrase": "security incident response vulnerability management",
+                        "limit": 3,
+                    },
                 }
-            })
-        
+            )
+
         # Comprehensive security assessment
-        if any(word in user_message_lower for word in ['security posture', 'overall security', 'comprehensive', 'assessment', 'audit']):
+        if any(
+            word in user_message_lower
+            for word in [
+                "security posture",
+                "overall security",
+                "comprehensive",
+                "assessment",
+                "audit",
+            ]
+        ):
             # Get comprehensive real-time data
-            tool_calls.extend([
-                {
-                    'tool': 'CheckSecurityServices',
-                    'mcp_server': 'security',
-                    'args': {
-                        'region': self.region,
-                        'services': ['guardduty', 'securityhub', 'inspector', 'accessanalyzer'],
-                        'store_in_context': True
-                    }
-                },
-                {
-                    'tool': 'CheckStorageEncryption',
-                    'mcp_server': 'security',
-                    'args': {
-                        'region': self.region,
-                        'services': ['s3', 'ebs'],
-                        'store_in_context': True
-                    }
-                }
-            ])
+            tool_calls.extend(
+                [
+                    {
+                        "tool": "CheckSecurityServices",
+                        "mcp_server": "security",
+                        "args": {
+                            "region": self.region,
+                            "services": [
+                                "guardduty",
+                                "securityhub",
+                                "inspector",
+                                "accessanalyzer",
+                            ],
+                            "store_in_context": True,
+                        },
+                    },
+                    {
+                        "tool": "CheckStorageEncryption",
+                        "mcp_server": "security",
+                        "args": {
+                            "region": self.region,
+                            "services": ["s3", "ebs"],
+                            "store_in_context": True,
+                        },
+                    },
+                ]
+            )
             # Get comprehensive AWS security documentation
-            tool_calls.append({
-                'tool': 'search_documentation',
-                'mcp_server': 'aws_knowledge',
-                'args': {
-                    'search_phrase': 'AWS Well-Architected security pillar comprehensive assessment',
-                    'limit': 5
+            tool_calls.append(
+                {
+                    "tool": "search_documentation",
+                    "mcp_server": "aws_knowledge",
+                    "args": {
+                        "search_phrase": "AWS Well-Architected security pillar comprehensive assessment",
+                        "limit": 5,
+                    },
                 }
-            })
-        
+            )
+
         # Best practices queries
-        if any(word in user_message_lower for word in ['best practices', 'recommendations', 'guidance', 'how to']):
+        if any(
+            word in user_message_lower
+            for word in ["best practices", "recommendations", "guidance", "how to"]
+        ):
             # Search for relevant AWS documentation
-            tool_calls.append({
-                'tool': 'search_documentation',
-                'mcp_server': 'aws_knowledge',
-                'args': {
-                    'search_phrase': f'security best practices {user_message}',
-                    'limit': 5
+            tool_calls.append(
+                {
+                    "tool": "search_documentation",
+                    "mcp_server": "aws_knowledge",
+                    "args": {
+                        "search_phrase": f"security best practices {user_message}",
+                        "limit": 5,
+                    },
                 }
-            })
-        
+            )
+
         return tool_calls
-    
+
     async def stream(self, user_query: str) -> AsyncGenerator[str, None]:
         """Stream enhanced response with both real-time data and AWS knowledge"""
         try:
-            logger.info(f"Processing enhanced security query with AWS knowledge: {user_query}")
-            
+            logger.info(
+                f"Processing enhanced security query with AWS knowledge: {user_query}"
+            )
+
             # Determine enhanced strategy
             tool_calls = await self._determine_enhanced_strategy(user_query)
-            
+
             # Execute tool calls
             security_results = []
             knowledge_results = []
-            
+
             for tool_call in tool_calls:
-                if tool_call['mcp_server'] == 'security':
+                if tool_call["mcp_server"] == "security":
                     result = await self._call_security_mcp_tool(
-                        tool_name=tool_call['tool'],
-                        arguments=tool_call['args']
+                        tool_name=tool_call["tool"], arguments=tool_call["args"]
                     )
                     if result:
-                        security_results.append({
-                            'tool': tool_call['tool'],
-                            'result': result
-                        })
-                
-                elif tool_call['mcp_server'] == 'aws_knowledge':
+                        security_results.append(
+                            {"tool": tool_call["tool"], "result": result}
+                        )
+
+                elif tool_call["mcp_server"] == "aws_knowledge":
                     result = await self._call_aws_knowledge_tool(
-                        tool_name=tool_call['tool'],
-                        arguments=tool_call['args']
+                        tool_name=tool_call["tool"], arguments=tool_call["args"]
                     )
                     if result:
-                        knowledge_results.append({
-                            'tool': tool_call['tool'],
-                            'result': result
-                        })
-            
+                        knowledge_results.append(
+                            {"tool": tool_call["tool"], "result": result}
+                        )
+
             # Stream results
             if security_results or knowledge_results:
                 yield "# 🔍 Enhanced Security Analysis\n\n"
-                
+
                 # Stream security assessment results first
                 if security_results:
                     yield "## 🛡️ Real-Time Security Assessment\n\n"
                     for result in security_results:
                         yield f"### {result['tool']}\n\n"
-                        yield result['result'] + "\n\n"
-                
+                        yield result["result"] + "\n\n"
+
                 # Stream AWS knowledge results
                 if knowledge_results:
                     yield "## 📚 AWS Official Guidance & Best Practices\n\n"
                     for result in knowledge_results:
                         yield f"### {result['tool']}\n\n"
-                        yield result['result'] + "\n\n"
-                
+                        yield result["result"] + "\n\n"
+
                 # Generate enhanced analysis
                 yield "---\n\n"
                 yield "## 🧠 Enhanced Analysis & Strategic Recommendations\n\n"
-                
+
                 # Prepare enhanced query for Claude
-                security_data = "\n".join([r['result'] for r in security_results])
-                knowledge_data = "\n".join([r['result'] for r in knowledge_results])
-                
+                security_data = "\n".join([r["result"] for r in security_results])
+                knowledge_data = "\n".join([r["result"] for r in knowledge_results])
+
                 enhanced_query = f"""User Query: {user_query}
 
 ## Real-Time Security Assessment Data:
@@ -624,7 +732,7 @@ Based on this comprehensive information combining real-time security data with o
 5. **Long-term Strategy**: How to maintain and improve security posture over time
 
 Focus on actionable insights that combine the real-time assessment with authoritative AWS guidance."""
-                
+
                 # Stream Claude's enhanced analysis
                 async for chunk in super().stream(user_query=enhanced_query):
                     yield chunk
@@ -641,10 +749,10 @@ As an Enhanced AWS Security Expert with access to both real-time security assess
 5. **Implementation Guidance**: Practical steps with AWS best practice alignment
 
 Use the AWS Knowledge MCP Server to search for relevant documentation if needed, and suggest specific security assessment tools that could provide real-time insights."""
-                
+
                 async for chunk in super().stream(user_query=enhanced_query):
                     yield chunk
-                
+
         except Exception as e:
             logger.error(f"Error in enhanced security agent stream: {e}")
             error_message = f"""❌ **Error Processing Enhanced Security Query**
@@ -652,8 +760,8 @@ Use the AWS Knowledge MCP Server to search for relevant documentation if needed,
 **Error Details**: {str(e)}
 
 **Available Capabilities**:
-- Security MCP Server: {len(self.mcp_connections.get('security', {}).get('tools', []))} tools
-- AWS Knowledge MCP Server: {len(self.mcp_connections.get('aws_knowledge', {}).get('tools', []))} tools
+- Security MCP Server: {len(self.mcp_connections.get("security", {}).get("tools", []))} tools
+- AWS Knowledge MCP Server: {len(self.mcp_connections.get("aws_knowledge", {}).get("tools", []))} tools
 
 **Troubleshooting Steps**:
 1. Check AWS credentials and permissions
@@ -662,71 +770,70 @@ Use the AWS Knowledge MCP Server to search for relevant documentation if needed,
 4. Review CloudWatch logs for detailed error information
 """
             yield error_message
-    
+
     def get_available_tools(self) -> Dict[str, List[Dict[str, Any]]]:
         """Get list of available tools grouped by MCP server"""
         return {
-            mcp_name: connection['tools']
+            mcp_name: connection["tools"]
             for mcp_name, connection in self.mcp_connections.items()
         }
-    
+
     async def health_check(self) -> Dict[str, Any]:
         """Perform a health check of all MCP connections"""
         health_status = {
             "agent_status": "healthy",
             "mcp_connections": {},
             "total_tools": len(self.all_tools),
-            "region": self.region
+            "region": self.region,
         }
-        
+
         # Check Security MCP
         try:
-            if self.mcp_connections['security']['url']:
-                await self._discover_mcp_tools('security')
+            if self.mcp_connections["security"]["url"]:
+                await self._discover_mcp_tools("security")
                 health_status["mcp_connections"]["security"] = {
                     "status": "healthy",
-                    "tools_count": len(self.mcp_connections['security']['tools']),
-                    "type": "agentcore"
+                    "tools_count": len(self.mcp_connections["security"]["tools"]),
+                    "type": "agentcore",
                 }
             else:
                 health_status["mcp_connections"]["security"] = {
                     "status": "not_configured",
                     "tools_count": 0,
-                    "type": "agentcore"
+                    "type": "agentcore",
                 }
         except Exception as e:
             health_status["mcp_connections"]["security"] = {
                 "status": f"error: {str(e)}",
                 "tools_count": 0,
-                "type": "agentcore"
+                "type": "agentcore",
             }
             health_status["agent_status"] = "degraded"
-        
+
         # Check AWS Knowledge MCP
         try:
             # Test AWS Knowledge MCP by trying a simple search
             result = await self._call_aws_knowledge_tool(
-                'search_documentation',
-                {'search_phrase': 'AWS security', 'limit': 1}
+                "search_documentation", {"search_phrase": "AWS security", "limit": 1}
             )
             if result and "Error" not in result:
                 health_status["mcp_connections"]["aws_knowledge"] = {
                     "status": "healthy",
-                    "tools_count": len(self.mcp_connections['aws_knowledge']['tools']),
-                    "type": "direct"
+                    "tools_count": len(self.mcp_connections["aws_knowledge"]["tools"]),
+                    "type": "direct",
                 }
             else:
                 health_status["mcp_connections"]["aws_knowledge"] = {
                     "status": "error: test search failed",
-                    "tools_count": len(self.mcp_connections['aws_knowledge']['tools']),
-                    "type": "direct"
+                    "tools_count": len(self.mcp_connections["aws_knowledge"]["tools"]),
+                    "type": "direct",
                 }
         except Exception as e:
             health_status["mcp_connections"]["aws_knowledge"] = {
                 "status": f"error: {str(e)}",
                 "tools_count": 0,
-                "type": "direct"
+                "type": "direct",
             }
             health_status["agent_status"] = "degraded"
-        
+
         return health_status
