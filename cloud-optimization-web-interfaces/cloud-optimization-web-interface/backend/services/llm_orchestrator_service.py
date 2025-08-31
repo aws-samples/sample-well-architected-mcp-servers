@@ -17,6 +17,7 @@
 """
 LLM Orchestrator Service - Central intelligence for routing and tool execution
 Discovers available MCP tools and uses LLM to intelligently route user requests
+FIXED VERSION: Handles Bedrock initialization failures gracefully
 """
 
 import json
@@ -37,10 +38,16 @@ from services.config_service import get_config
 logger = logging.getLogger(__name__)
 
 
+class BedrockInitializationError(Exception):
+    """Custom exception for Bedrock initialization failures"""
+    pass
+
+
 class LLMOrchestratorService:
     def __init__(self):
         self.region = get_config("AWS_DEFAULT_REGION", "us-east-1")
         self._bedrock_runtime = None
+        self._bedrock_initialization_error = None
         self.mcp_service = MCPClientService(demo_mode=True)
         self.available_tools = []
         self.tools_discovered = False
@@ -52,28 +59,46 @@ class LLMOrchestratorService:
 
     @property
     def bedrock_runtime(self):
-        """Lazy initialization of Bedrock Runtime client"""
-        if self._bedrock_runtime is None:
+        """Lazy initialization of Bedrock Runtime client with proper error handling"""
+        if self._bedrock_runtime is None and self._bedrock_initialization_error is None:
             try:
                 self._bedrock_runtime = boto3.client(
                     "bedrock-runtime", region_name=self.region
                 )
+                logger.info("Bedrock Runtime client initialized successfully")
             except Exception as e:
-                logger.warning(f"Could not initialize Bedrock Runtime client: {str(e)}")
-                self._bedrock_runtime = None
+                error_msg = f"Failed to initialize Bedrock Runtime client: {str(e)}"
+                logger.error(error_msg)
+                self._bedrock_initialization_error = BedrockInitializationError(error_msg)
+                
+        if self._bedrock_initialization_error:
+            raise self._bedrock_initialization_error
+            
         return self._bedrock_runtime
+
+    def _is_bedrock_available(self) -> bool:
+        """Check if Bedrock is available without raising exceptions"""
+        try:
+            _ = self.bedrock_runtime
+            return True
+        except BedrockInitializationError:
+            return False
 
     async def health_check(self) -> str:
         """Check if the orchestrator service is healthy"""
         try:
             # Check MCP service
             mcp_status = await self.mcp_service.health_check()
+            
+            # Check Bedrock availability
+            bedrock_available = self._is_bedrock_available()
 
-            # Simple check - if we can initialize, we're healthy
-            if mcp_status == "healthy":
+            if mcp_status == "healthy" and bedrock_available:
                 return "healthy"
+            elif mcp_status == "healthy":
+                return "degraded"  # MCP works but Bedrock doesn't
             else:
-                return "degraded"
+                return "unhealthy"
         except Exception as e:
             logger.error(f"Orchestrator health check failed: {str(e)}")
             return "unhealthy"
@@ -91,6 +116,7 @@ class LLMOrchestratorService:
             session.context["available_tools"] = self.available_tools
             session.context["tools_discovered_at"] = datetime.utcnow().isoformat()
             session.context["orchestrator_initialized"] = True
+            session.context["bedrock_available"] = self._is_bedrock_available()
 
             # Generate initial system prompt with tool information
             system_prompt = self._generate_system_prompt()
@@ -103,6 +129,7 @@ class LLMOrchestratorService:
             return {
                 "status": "initialized",
                 "tools_count": len(self.available_tools),
+                "bedrock_available": session.context["bedrock_available"],
                 "tools": [
                     {"name": tool["name"], "description": tool["description"]}
                     for tool in self.available_tools
@@ -143,7 +170,13 @@ class LLMOrchestratorService:
             "\n".join(tools_info) if tools_info else "No tools currently available."
         )
 
+        bedrock_status = "available" if self._is_bedrock_available() else "unavailable"
+
         return f"""You are an AWS Cloud Optimization Assistant with access to specialized MCP (Model Context Protocol) tools for analyzing AWS infrastructure. Your role is to help users optimize their AWS environments across security, performance, cost, and operational excellence.
+
+**System Status:**
+- Bedrock LLM: {bedrock_status}
+- Available Tools: {len(self.available_tools)}
 
 **Available Tools:**
 {tools_text}
@@ -182,6 +215,10 @@ You should be proactive in suggesting related analyses that might be valuable to
             # Initialize session if not already done
             if not session.context.get("orchestrator_initialized"):
                 await self.initialize_session(session)
+
+            # Check if Bedrock is available
+            if not self._is_bedrock_available():
+                return await self._process_message_without_bedrock(message, session)
 
             # Analyze the message and determine tool usage
             analysis = await self._analyze_user_request(message, session)
@@ -240,6 +277,106 @@ You should be proactive in suggesting related analyses that might be valuable to
                 model_id=self.model_id,
                 session_id=session.session_id,
             )
+
+    async def _process_message_without_bedrock(
+        self, message: str, session: ChatSession
+    ) -> BedrockResponse:
+        """Fallback processing when Bedrock is not available"""
+        
+        logger.warning("Processing message without Bedrock - using rule-based routing")
+        
+        # Simple rule-based tool selection
+        tool_executions = []
+        tool_results = []
+        
+        # Basic keyword matching for tool selection
+        message_lower = message.lower()
+        
+        if any(word in message_lower for word in ['security', 'secure', 'vulnerability', 'compliance']):
+            # Security-related query
+            try:
+                result = await self.mcp_service.call_tool("CheckSecurityServices", {"region": "us-east-1"})
+                tool_execution = ToolExecution(
+                    tool_name="CheckSecurityServices",
+                    parameters={"region": "us-east-1"},
+                    status=ToolExecutionStatus.SUCCESS,
+                    result=result,
+                    timestamp=datetime.utcnow(),
+                )
+                tool_executions.append(tool_execution)
+                tool_results.append({"tool_name": "CheckSecurityServices", "result": result})
+            except Exception as e:
+                logger.error(f"Tool execution failed: {e}")
+        
+        elif any(word in message_lower for word in ['storage', 'encrypt', 's3', 'ebs', 'rds']):
+            # Storage-related query
+            try:
+                result = await self.mcp_service.call_tool("CheckStorageEncryption", {"region": "us-east-1"})
+                tool_execution = ToolExecution(
+                    tool_name="CheckStorageEncryption",
+                    parameters={"region": "us-east-1"},
+                    status=ToolExecutionStatus.SUCCESS,
+                    result=result,
+                    timestamp=datetime.utcnow(),
+                )
+                tool_executions.append(tool_execution)
+                tool_results.append({"tool_name": "CheckStorageEncryption", "result": result})
+            except Exception as e:
+                logger.error(f"Tool execution failed: {e}")
+        
+        # Generate a basic response without LLM
+        response_text = self._generate_fallback_response(message, tool_results)
+        
+        return BedrockResponse(
+            response=response_text,
+            tool_executions=tool_executions,
+            model_id="fallback-mode",
+            session_id=session.session_id,
+            structured_data={"tool_results": tool_results} if tool_results else None,
+        )
+
+    def _generate_fallback_response(self, message: str, tool_results: List[Dict[str, Any]]) -> str:
+        """Generate a basic response without using Bedrock LLM"""
+        
+        if not tool_results:
+            return f"""I understand you're asking about: "{message}"
+
+Unfortunately, I'm currently operating in limited mode due to a service issue. I can still execute analysis tools, but my natural language processing capabilities are temporarily reduced.
+
+Available capabilities:
+- Security assessments (CheckSecurityServices)
+- Storage encryption analysis (CheckStorageEncryption)  
+- Network security checks (CheckNetworkSecurity)
+- Service discovery (ListServicesInRegion)
+
+Please try rephrasing your request with specific keywords like "security", "storage", or "network" to trigger the appropriate analysis tools."""
+
+        # Basic summary of tool results
+        response_parts = [f"I've analyzed your request: \"{message}\"\n"]
+        
+        for tool_result in tool_results:
+            tool_name = tool_result["tool_name"]
+            result = tool_result["result"]
+            
+            response_parts.append(f"**{tool_name} Results:**")
+            
+            if isinstance(result, dict):
+                # Extract key metrics
+                if "resources_checked" in result:
+                    response_parts.append(f"- Resources checked: {result['resources_checked']}")
+                if "compliant_resources" in result:
+                    response_parts.append(f"- Compliant resources: {result['compliant_resources']}")
+                if "non_compliant_resources" in result:
+                    response_parts.append(f"- Non-compliant resources: {result['non_compliant_resources']}")
+                if "all_enabled" in result:
+                    status = "All services enabled" if result["all_enabled"] else "Some services not enabled"
+                    response_parts.append(f"- Status: {status}")
+            
+            response_parts.append("")
+        
+        response_parts.append("Note: I'm currently operating in limited mode. For detailed analysis and recommendations, please contact your system administrator about the Bedrock service configuration.")
+        
+        return "\n".join(response_parts)
 
     async def _analyze_user_request(
         self, message: str, session: ChatSession
@@ -315,13 +452,45 @@ If no tools are needed (e.g., for general questions), return an empty tools_to_u
                     "analysis_approach": "direct response",
                 }
 
+        except BedrockInitializationError:
+            logger.warning("Bedrock not available, using rule-based analysis")
+            return self._analyze_user_request_fallback(message)
         except Exception as e:
             logger.error(f"Failed to analyze user request: {e}")
-            return {
-                "intent": "error",
-                "tools_to_use": [],
-                "analysis_approach": "error handling",
-            }
+            return self._analyze_user_request_fallback(message)
+
+    def _analyze_user_request_fallback(self, message: str) -> Dict[str, Any]:
+        """Fallback analysis when Bedrock is not available"""
+        message_lower = message.lower()
+        
+        tools_to_use = []
+        
+        if any(word in message_lower for word in ['security', 'secure', 'vulnerability', 'compliance']):
+            tools_to_use.append({
+                "name": "CheckSecurityServices",
+                "arguments": {"region": "us-east-1"},
+                "reason": "Security-related query detected"
+            })
+        
+        if any(word in message_lower for word in ['storage', 'encrypt', 's3', 'ebs', 'rds']):
+            tools_to_use.append({
+                "name": "CheckStorageEncryption", 
+                "arguments": {"region": "us-east-1"},
+                "reason": "Storage-related query detected"
+            })
+        
+        if any(word in message_lower for word in ['network', 'vpc', 'security group', 'load balancer']):
+            tools_to_use.append({
+                "name": "CheckNetworkSecurity",
+                "arguments": {"region": "us-east-1"}, 
+                "reason": "Network-related query detected"
+            })
+        
+        return {
+            "intent": "automated analysis based on keywords",
+            "tools_to_use": tools_to_use,
+            "analysis_approach": "rule-based tool selection"
+        }
 
     async def _generate_final_response(
         self,
@@ -331,6 +500,14 @@ If no tools are needed (e.g., for general questions), return an empty tools_to_u
         session: ChatSession,
     ) -> Dict[str, Any]:
         """Generate final response using LLM with tool results"""
+
+        # Check if Bedrock is available
+        if not self._is_bedrock_available():
+            return {
+                "response": self._generate_fallback_response(original_message, tool_results),
+                "structured_data": {"tool_results": tool_results} if tool_results else None,
+                "human_summary": None,
+            }
 
         system_prompt = session.context.get(
             "system_prompt", self._generate_system_prompt()
@@ -414,6 +591,13 @@ Present all information in natural language format suitable for business stakeho
                 "human_summary": None,  # The LLM response already includes human-readable summary
             }
 
+        except BedrockInitializationError:
+            logger.warning("Bedrock not available for final response generation")
+            return {
+                "response": self._generate_fallback_response(original_message, tool_results),
+                "structured_data": structured_data if structured_data else None,
+                "human_summary": None,
+            }
         except Exception as e:
             logger.error(f"Failed to generate final response: {e}")
             return {
@@ -428,6 +612,7 @@ Present all information in natural language format suitable for business stakeho
             "session_id": session.session_id,
             "tools_available": len(self.available_tools),
             "initialized": session.context.get("orchestrator_initialized", False),
+            "bedrock_available": session.context.get("bedrock_available", False),
             "tools_discovered_at": session.context.get("tools_discovered_at"),
             "available_tools": [
                 {"name": tool["name"], "description": tool["description"]}

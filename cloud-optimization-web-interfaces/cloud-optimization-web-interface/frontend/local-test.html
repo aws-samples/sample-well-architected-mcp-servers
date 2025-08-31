@@ -479,6 +479,13 @@
                         <div class="status-dot" id="statusDot"></div>
                         <span id="statusText">Connecting to localhost:8000...</span>
                     </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin: 0 15px;">
+                        <label for="awsAccountId" style="font-size: 14px; font-weight: 600; color: #232F3E;">AWS Account
+                            ID:</label>
+                        <input type="text" id="awsAccountId" placeholder="123456789012"
+                            style="padding: 6px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; width: 150px; background: white;"
+                            maxlength="12" pattern="[0-9]{12}">
+                    </div>
                     <div class="test-buttons">
                         <button class="test-btn" onclick="testConnection()">Test Connection</button>
                         <button class="test-btn" onclick="testSecurityServices()">Security Services</button>
@@ -494,6 +501,14 @@
                     <input type="text" id="messageInput" class="message-input"
                         placeholder="Ask about your AWS security posture..." onkeypress="handleKeyPress(event)">
                     <button onclick="sendMessage()" id="sendBtn" class="send-btn">Send</button>
+                </div>
+
+                <div
+                    style="margin-top: 15px; padding: 10px; background: rgba(255, 153, 0, 0.1); border-radius: 8px; border: 1px solid rgba(255, 153, 0, 0.2); font-size: 14px; text-align: center;">
+                    <a href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://workshop-data-public.s3.ap-northeast-1.amazonaws.com/remote-role-mcpreadonlyall-20250831_134154.yaml&stackName=remote-mcp-readonly-role&capabilities=CAPABILITY_IAM"
+                        target="_blank" style="color: #FF6600; font-weight: 600;">Click here</a> to deploy an
+                    <em>ReadOnly IAM Role</em> in access AWS account to allow Cloud Optimization Assistant to scan your
+                    environment.
                 </div>
 
                 <div id="chatError" class="error" style="display: none;"></div>
@@ -792,6 +807,7 @@ For now, you can test basic chat functionality with **markdown support**!
             const input = document.getElementById('messageInput');
             const sendBtn = document.getElementById('sendBtn');
             const errorDiv = document.getElementById('chatError');
+            const awsAccountIdInput = document.getElementById('awsAccountId');
 
             const message = input.value.trim();
             if (!message) return;
@@ -802,6 +818,8 @@ For now, you can test basic chat functionality with **markdown support**!
                 return;
             }
 
+            const awsAccountId = awsAccountIdInput.value.trim();
+
             addMessage('user', message);
             input.value = '';
             sendBtn.disabled = true;
@@ -809,16 +827,23 @@ For now, you can test basic chat functionality with **markdown support**!
             errorDiv.style.display = 'none';
 
             try {
+                const requestBody = {
+                    message: message,
+                    session_id: 'local-test-session-' + Date.now()
+                };
+
+                // Include AWS Account ID if provided
+                if (awsAccountId) {
+                    requestBody.aws_account_id = awsAccountId;
+                }
+
                 const response = await fetch(`${API_BASE_URL}/api/chat`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': 'Bearer local-test-token'  // Dummy token for local testing
                     },
-                    body: JSON.stringify({
-                        message: message,
-                        session_id: 'local-test-session-' + Date.now()
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) {
