@@ -1,0 +1,1066 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Complete Cloud Optimization Platform - Infrastructure, CI/CD, and Frontend with Bedrock Integration'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+  
+  SourceBucket:
+    Type: String
+    Description: S3 bucket for source code storage
+  
+  SourceKey:
+    Type: String
+    Default: source.zip
+    Description: S3 key for source code zip file
+
+Resources:
+  # ===== COGNITO RESOURCES =====
+  SharedUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-shared-${Environment}'
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      UsernameAttributes:
+        - email
+      UserPoolTags:
+        Environment: !Ref Environment
+        Project: CloudOptimization
+        Component: Cognito
+
+  # Cognito User Pool Domain
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub '${AWS::StackName}-${AWS::AccountId}-${Environment}'
+      UserPoolId: !Ref SharedUserPool
+
+  WebAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref SharedUserPool
+      ClientName: !Sub 'web-app-client-${Environment}'
+      GenerateSecret: false
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - 'http://localhost:3000/callback'
+        - 'https://localhost:3000/callback'
+      LogoutURLs:
+        - 'http://localhost:3000/logout'
+        - 'https://localhost:3000/logout'
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
+  APIClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref SharedUserPool
+      ClientName: !Sub 'api-client-${Environment}'
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+
+  MCPServerClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref SharedUserPool
+      ClientName: !Sub 'mcp-server-client-${Environment}'
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  # Identity Pool for AWS resource access
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub 'cloud_optimization_identity_pool_${Environment}'
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        - ClientId: !Ref WebAppClient
+          ProviderName: !GetAtt SharedUserPool.ProviderName
+        - ClientId: !Ref APIClient
+          ProviderName: !GetAtt SharedUserPool.ProviderName
+
+  # IAM Role for authenticated users
+  AuthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref IdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: AuthenticatedUserPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-sync:*
+                  - cognito-identity:*
+                Resource: '*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Cognito
+
+  # Identity Pool Role Attachment
+  IdentityPoolRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref IdentityPool
+      Roles:
+        authenticated: !GetAtt AuthenticatedRole.Arn
+
+  # ===== S3 BUCKETS =====
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-artifacts-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+      Tags:
+        - Key: Component
+          Value: CodePipeline
+        - Key: Purpose
+          Value: Artifacts
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Frontend S3 Bucket
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-frontend-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Component
+          Value: Frontend
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===== IAM ROLES =====
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-pipeline-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${SourceBucket}/*'
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub 'arn:aws:s3:::${SourceBucket}'
+                  - !GetAtt ArtifactsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt FrontendBuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: '*'
+      Tags:
+        - Key: Component
+          Value: CodePipeline
+        - Key: Environment
+          Value: !Ref Environment
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-codebuild-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${SourceBucket}/*'
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+                  - !Sub '${FrontendBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub 'arn:aws:s3:::${SourceBucket}'
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !GetAtt FrontendBucket.Arn
+              - Effect: Allow
+                Action:
+                  - ecs:UpdateService
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+      Tags:
+        - Key: Component
+          Value: CodeBuild
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===== CODEBUILD PROJECTS =====
+  FrontendBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-frontend-build'
+      Description: Build and deploy frontend to S3 and CloudFront
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        EnvironmentVariables:
+          - Name: FRONTEND_BUCKET
+            Value: !Ref FrontendBucket
+          - Name: CLOUDFRONT_DISTRIBUTION_ID
+            Value: !Ref CloudFrontDistribution
+          - Name: USER_POOL_ID
+            Value: !Ref SharedUserPool
+          - Name: WEB_APP_CLIENT_ID
+            Value: !Ref WebAppClient
+          - Name: API_CLIENT_ID
+            Value: !Ref APIClient
+          - Name: MCP_SERVER_CLIENT_ID
+            Value: !Ref MCPServerClient
+          - Name: ALB_DNS_NAME
+            Value: !GetAtt ApplicationLoadBalancer.DNSName
+          - Name: CLOUDFRONT_DOMAIN
+            Value: !GetAtt CloudFrontDistribution.DomainName
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - echo Frontend build started on `date`
+                - cd cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend
+            build:
+              commands:
+                - echo Creating frontend configuration...
+                - |
+                  cat > config.js << EOF
+                  window.APP_CONFIG = {
+                    "cognito": {
+                      "userPoolId": "$USER_POOL_ID",
+                      "clientId": "$WEB_APP_CLIENT_ID",
+                      "domain": "${AWS_STACK_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}.auth.${AWS_DEFAULT_REGION}.amazoncognito.com"
+                    },
+                    "api": {
+                      "baseUrl": "https://$CLOUDFRONT_DOMAIN",
+                      "endpoints": {
+                        "chat": "https://$CLOUDFRONT_DOMAIN/api/chat",
+                        "health": "https://$CLOUDFRONT_DOMAIN/health",
+                        "websocket": "wss://$CLOUDFRONT_DOMAIN/ws"
+                      }
+                    },
+                    "app": {
+                      "name": "Cloud Optimization Platform",
+                      "version": "1.0.0"
+                    }
+                  };
+                  EOF
+                - echo Configuration created successfully
+                - ls -la
+            post_build:
+              commands:
+                - echo Uploading to S3...
+                - aws s3 sync . s3://$FRONTEND_BUCKET/ --delete
+                - echo Creating CloudFront invalidation...
+                - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
+                - echo Frontend deployment completed on `date`
+      TimeoutInMinutes: 10
+      Tags:
+        - Key: Component
+          Value: Frontend
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===== VPC AND NETWORKING =====
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-subnet-1'
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-subnet-2'
+        - Key: Environment
+          Value: !Ref Environment
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-igw'
+        - Key: Environment
+          Value: !Ref Environment
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-rt'
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ===== SECURITY GROUPS =====
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP traffic
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS traffic
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-alb-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Traffic from ALB
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ecs-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===== APPLICATION LOAD BALANCER =====
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${AWS::StackName}-alb'
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${AWS::StackName}-tg'
+      Port: 8000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  # ===== CLOUDFRONT AND FRONTEND =====
+  OriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub 'OAI for ${AWS::StackName} frontend'
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${OriginAccessIdentity}'
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # Managed-CachingOptimized
+          Compress: true
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: ALBOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            AllowedMethods: [DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT]
+          - PathPattern: /health
+            TargetOriginId: ALBOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            AllowedMethods: [DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT]
+          - PathPattern: /ws/*
+            TargetOriginId: ALBOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            AllowedMethods: [DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT]
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${OriginAccessIdentity}'
+          - Id: ALBOrigin
+            DomainName: !GetAtt ApplicationLoadBalancer.DNSName
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+        Enabled: true
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Frontend
+
+  # ===== ECS CLUSTER AND SERVICE =====
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${AWS::StackName}-cluster'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  # MERGED ECS TASK ROLE WITH BEDROCK PERMISSIONS
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSTaskPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:*
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource: '*'
+              # MERGED BEDROCK PERMISSIONS FROM PATCH
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                  - bedrock-agent:InvokeAgent
+                  - bedrock-agent:GetAgent
+                  - bedrock-agent:ListAgents
+                Resource: '*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${AWS::StackName}'
+      RetentionInDays: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${AWS::StackName}-task'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: backend
+          Image: 'public.ecr.aws/j0o6a0a3/cos/backend:latest'
+          PortMappings:
+            - ContainerPort: 8000
+              Protocol: tcp
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: USER_POOL_ID
+              Value: !Ref SharedUserPool
+            - Name: WEB_APP_CLIENT_ID
+              Value: !Ref WebAppClient
+            - Name: API_CLIENT_ID
+              Value: !Ref APIClient
+            - Name: MCP_SERVER_CLIENT_ID
+              Value: !Ref MCPServerClient
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+            - Name: CLOUDFRONT_DOMAIN
+              Value: !GetAtt CloudFrontDistribution.DomainName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      ServiceName: !Sub '${AWS::StackName}-service'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: backend
+          ContainerPort: 8000
+          TargetGroupArn: !Ref TargetGroup
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: WebApp
+
+  # ===== SSM PARAMETERS FOR COGNITO CONFIGURATION =====
+  CognitoUserPoolIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/user_pool_id
+      Type: String
+      Value: !Ref SharedUserPool
+      Description: Shared Cognito User Pool ID for Cloud Optimization Platform
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoWebAppClientIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/web_app_client_id
+      Type: String
+      Value: !Ref WebAppClient
+      Description: Web Application Client ID for frontend apps
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoAPIClientIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/api_client_id
+      Type: String
+      Value: !Ref APIClient
+      Description: API Client ID for backend services
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoMCPServerClientIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/mcp_server_client_id
+      Type: String
+      Value: !Ref MCPServerClient
+      Description: MCP Server Client ID for AgentCore Runtime
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoUserPoolDomainParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/user_pool_domain
+      Type: String
+      Value: !Ref UserPoolDomain
+      Description: Cognito User Pool Domain for OAuth flows
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoDiscoveryUrlParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/discovery_url
+      Type: String
+      Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${SharedUserPool}/.well-known/openid-configuration'
+      Description: OIDC Discovery URL for JWT validation
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoRegionParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/region
+      Type: String
+      Value: !Ref AWS::Region
+      Description: AWS Region where Cognito is deployed
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoUserPoolArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/user_pool_arn
+      Type: String
+      Value: !GetAtt SharedUserPool.Arn
+      Description: Cognito User Pool ARN
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  CognitoIdentityPoolIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /coa/cognito/identity_pool_id
+      Type: String
+      Value: !Ref IdentityPool
+      Description: Cognito Identity Pool ID for AWS resource access
+      Tags:
+        Environment: !Ref Environment
+        Component: Cognito
+
+  # ===== MERGED BEDROCK SSM PARAMETERS FROM PATCH =====
+  BedrockRegionParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /cloud-optimization-platform/BEDROCK_REGION
+      Type: String
+      Value: !Ref AWS::Region
+      Description: AWS region for Bedrock service
+      Tags:
+        Environment: !Ref Environment
+        Component: Bedrock
+
+  BedrockModelIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /cloud-optimization-platform/BEDROCK_MODEL_ID
+      Type: String
+      Value: anthropic.claude-3-haiku-20240307-v1:0
+      Description: Bedrock model ID for LLM orchestration
+      Tags:
+        Environment: !Ref Environment
+        Component: Bedrock
+
+  UseEnhancedAgentParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /cloud-optimization-platform/USE_ENHANCED_AGENT
+      Type: String
+      Value: 'false'
+      Description: Whether to use enhanced Bedrock agent
+      Tags:
+        Environment: !Ref Environment
+        Component: Bedrock
+
+  # ===== CODEPIPELINE =====
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${AWS::StackName}-pipeline'
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactsBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                S3Bucket: !Ref SourceBucket
+                S3ObjectKey: !Ref SourceKey
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: SourceOutput
+
+        - Name: Build
+          Actions:
+            - Name: FrontendBuild
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref FrontendBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+
+      Tags:
+        - Key: Component
+          Value: CodePipeline
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  # ===== COGNITO OUTPUTS =====
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref SharedUserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolId'
+
+  UserPoolDomain:
+    Description: Cognito User Pool Domain
+    Value: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolDomain'
+
+  WebAppClientId:
+    Description: Web App Client ID
+    Value: !Ref WebAppClient
+    Export:
+      Name: !Sub '${AWS::StackName}-WebAppClientId'
+
+  APIClientId:
+    Description: API Client ID
+    Value: !Ref APIClient
+    Export:
+      Name: !Sub '${AWS::StackName}-APIClientId'
+
+  MCPServerClientId:
+    Description: MCP Server Client ID
+    Value: !Ref MCPServerClient
+    Export:
+      Name: !Sub '${AWS::StackName}-MCPServerClientId'
+
+  IdentityPoolId:
+    Description: Cognito Identity Pool ID
+    Value: !Ref IdentityPool
+    Export:
+      Name: !Sub '${AWS::StackName}-IdentityPoolId'
+
+  AuthenticatedRoleArn:
+    Description: IAM Role ARN for authenticated users
+    Value: !GetAtt AuthenticatedRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AuthenticatedRoleArn'
+
+  DiscoveryUrl:
+    Description: OIDC Discovery URL for JWT validation
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${SharedUserPool}/.well-known/openid-configuration'
+    Export:
+      Name: !Sub '${AWS::StackName}-DiscoveryUrl'
+
+  # ===== INFRASTRUCTURE OUTPUTS =====
+  BackendImageURI:
+    Description: Backend Docker Image URI
+    Value: 'public.ecr.aws/j0o6a0a3/cos/backend:latest'
+    Export:
+      Name: !Sub '${AWS::StackName}-BackendImageURI'
+
+  LoadBalancerDNS:
+    Description: Application Load Balancer DNS Name
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-LoadBalancerDNS'
+
+  CloudFrontDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDomainName'
+
+  FrontendBucketName:
+    Description: Frontend S3 Bucket Name
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-FrontendBucketName'
+
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCId'
+
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ECSClusterName'
+
+  # ===== BEDROCK OUTPUTS =====
+  BedrockRegion:
+    Description: AWS region for Bedrock service
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub '${AWS::StackName}-BedrockRegion'
+
+  BedrockModelId:
+    Description: Bedrock model ID for LLM orchestration
+    Value: anthropic.claude-3-haiku-20240307-v1:0
+    Export:
+      Name: !Sub '${AWS::StackName}-BedrockModelId'

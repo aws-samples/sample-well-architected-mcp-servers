@@ -203,19 +203,40 @@ class CognitoSSMParameterGenerator:
                 continue
             
             try:
-                self.ssm_client.put_parameter(
-                    Name=param_name,
-                    Value=param_config['value'],
-                    Type='String',
-                    Description=param_config['description'],
-                    Overwrite=True,
-                    Tags=[
-                        {'Key': 'StackName', 'Value': stack_name},
-                        {'Key': 'Component', 'Value': 'Cognito'},
-                        {'Key': 'GeneratedBy', 'Value': 'cognito-ssm-generator'}
-                    ]
-                )
-                logger.info(f"✅ Created SSM parameter: {param_name}")
+                # Check if parameter exists
+                parameter_exists = False
+                try:
+                    self.ssm_client.get_parameter(Name=param_name)
+                    parameter_exists = True
+                except ClientError as e:
+                    if e.response['Error']['Code'] != 'ParameterNotFound':
+                        raise
+                
+                if parameter_exists:
+                    # Update existing parameter (without tags)
+                    self.ssm_client.put_parameter(
+                        Name=param_name,
+                        Value=param_config['value'],
+                        Type='String',
+                        Description=param_config['description'],
+                        Overwrite=True
+                    )
+                    logger.info(f"✅ Updated SSM parameter: {param_name}")
+                else:
+                    # Create new parameter (with tags)
+                    self.ssm_client.put_parameter(
+                        Name=param_name,
+                        Value=param_config['value'],
+                        Type='String',
+                        Description=param_config['description'],
+                        Tags=[
+                            {'Key': 'StackName', 'Value': stack_name},
+                            {'Key': 'Component', 'Value': 'Cognito'},
+                            {'Key': 'GeneratedBy', 'Value': 'cognito-ssm-generator'}
+                        ]
+                    )
+                    logger.info(f"✅ Created SSM parameter: {param_name}")
+                
                 results[param_name] = True
                 
             except ClientError as e:

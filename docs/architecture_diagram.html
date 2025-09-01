@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AWS Well-Architected Cloud Optimization Suite - Architecture Diagram</title>
+    <title>AWS Well-Architected Cloud Optimization Suite - Enhanced Architecture Diagram</title>
     <style>
         * {
             margin: 0;
@@ -244,15 +244,15 @@
             .architecture {
                 grid-template-columns: 1fr;
             }
-            
+
             .components {
                 grid-template-columns: 1fr;
             }
-            
+
             .flow-diagram {
                 flex-direction: column;
             }
-            
+
             .flow-arrow {
                 transform: rotate(90deg);
             }
@@ -263,7 +263,7 @@
     <div class="container">
         <div class="header">
             <h1>🏗️ AWS Well-Architected Cloud Optimization Suite</h1>
-            <p>Comprehensive Architecture Overview - 15 Components Across 5 Layers</p>
+            <p>Enhanced Architecture Overview - 19 Components Across 5 Layers</p>
         </div>
 
         <div class="architecture">
@@ -333,11 +333,11 @@
                 </div>
             </div>
 
-            <!-- Bedrock Agents Layer -->
+            <!-- Agents Layer -->
             <div class="layer agents">
                 <div class="layer-title">
                     <span class="layer-icon">🤖</span>
-                    Bedrock Agents
+                    Agents
                 </div>
                 <div class="components">
                     <div class="component active">
@@ -385,6 +385,21 @@
                             <li>Unused resource detection</li>
                         </ul>
                     </div>
+                    <div class="component planned">
+                        <div class="component-header">
+                            <div class="component-title">EKS Operation Agent</div>
+                            <div class="status-badge status-planned">Planned</div>
+                        </div>
+                        <div class="component-description">
+                            Agent for Kubernetes cluster operations and optimization
+                        </div>
+                        <ul class="component-features">
+                            <li>EKS cluster health checks</li>
+                            <li>Pod optimization analysis</li>
+                            <li>Resource utilization review</li>
+                            <li>Security policy validation</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
 
@@ -410,6 +425,40 @@
                             <li>Access analyzer integration</li>
                             <li>Inspector vulnerability scan</li>
                             <li>Resource enumeration</li>
+                        </ul>
+                    </div>
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">AWS API MCP Server</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            AWS MCP package awslabs.aws-api-mcp-server
+                        </div>
+                        <ul class="component-features">
+                            <li>Local installation in BedRock AgentCore Runtime</li>
+                            <li>Support AWS API</li>
+                            <li>Direct AWS service integration</li>
+                            <li>Real-time AWS resource queries</li>
+                        </ul>
+                    </div>
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">AWS Knowledge Server</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Remote public AWS Knowledge MCP Server
+                        </div>
+                        <ul class="component-features">
+                            <li>The latest AWS docs</li>
+                            <li>API references</li>
+                            <li>What's New posts</li>
+                            <li>Getting Started information</li>
+                            <li>Builder Center</li>
+                            <li>Blog posts</li>
+                            <li>Architectural references</li>
+                            <li>Well-Architected guidance</li>
                         </ul>
                     </div>
                     <div class="component planned">
@@ -533,19 +582,19 @@
         <!-- Statistics -->
         <div class="stats">
             <div class="stat-card">
-                <div class="stat-number">15</div>
+                <div class="stat-number">19</div>
                 <div class="stat-label">Total Components</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">8</div>
+                <div class="stat-number">11</div>
                 <div class="stat-label">Active Components</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">7</div>
+                <div class="stat-number">8</div>
                 <div class="stat-label">Planned Components</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">6</div>
+                <div class="stat-number">8</div>
                 <div class="stat-label">MCP Tools Available</div>
             </div>
             <div class="stat-card">
