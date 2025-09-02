@@ -19,12 +19,14 @@ Agent Task for Well-Architected Security Agent
 Integrates with Bedrock AgentCore and MCP Security Server
 """
 
+import logging
+
+from bedrock_agentcore.memory import MemoryClient
+
 from .context import SecurityAgentContext
 from .memory_hook_provider import MemoryHook
-from .utils import get_ssm_parameter
 from .security_agent import SecurityAgent
-from bedrock_agentcore.memory import MemoryClient
-import logging
+from .utils import get_ssm_parameter
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)

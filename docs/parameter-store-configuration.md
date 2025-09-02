@@ -491,7 +491,7 @@ The deployment script handles parameter conflicts and provides guidance for reso
 
 ## Best Practices
 
-1. **Use Appropriate Namespaces**: 
+1. **Use Appropriate Namespaces**:
    - `/coa/` for shared platform components
    - `/cloud-optimization-web-interface/` for web interface
    - `/cloud-optimization-platform/` for legacy compatibility
@@ -523,7 +523,7 @@ class CloudOptimizationComponent:
     def __init__(self, region='us-east-1'):
         self.ssm = boto3.client('ssm', region_name=region)
         self.region = region
-    
+
     def get_shared_cognito_config(self):
         """Get shared Cognito configuration from /coa/ namespace"""
         response = self.ssm.get_parameters_by_path(
@@ -531,7 +531,7 @@ class CloudOptimizationComponent:
             Recursive=True
         )
         return {p['Name'].split('/')[-1]: p['Value'] for p in response['Parameters']}
-    
+
     def get_mcp_server_config(self, server_name):
         """Get MCP server configuration"""
         try:
@@ -542,7 +542,7 @@ class CloudOptimizationComponent:
         except Exception as e:
             print(f"Could not get MCP server config: {e}")
             return None
-    
+
     def get_bedrock_agent_config(self, agent_name):
         """Get Bedrock agent configuration"""
         response = self.ssm.get_parameters_by_path(
@@ -558,7 +558,7 @@ class CloudOptimizationComponent:
             except:
                 config[key] = param['Value']
         return config
-    
+
     def get_web_interface_config(self):
         """Get web interface configuration"""
         response = self.ssm.get_parameters_by_path(
@@ -567,7 +567,7 @@ class CloudOptimizationComponent:
             WithDecryption=True  # For SecureString parameters
         )
         return {p['Name'].split('/')[-1]: p['Value'] for p in response['Parameters']}
-    
+
     def get_legacy_config(self):
         """Get legacy platform configuration"""
         response = self.ssm.get_parameters_by_path(
@@ -575,21 +575,21 @@ class CloudOptimizationComponent:
             Recursive=True
         )
         return {p['Name'].split('/')[-1]: p['Value'] for p in response['Parameters']}
-    
+
     def deploy_new_component(self, component_name):
         """Deploy and register a new component"""
-        
+
         # 1. Get shared Cognito configuration
         cognito_config = self.get_shared_cognito_config()
         print(f"Using Cognito User Pool: {cognito_config.get('user_pool_id')}")
-        
+
         # 2. Get existing MCP server configurations
         wa_security_config = self.get_mcp_server_config('wa_security_mcp')
         aws_api_config = self.get_mcp_server_config('aws_api_mcp')
-        
+
         # 3. Deploy your component (CloudFormation, CDK, etc.)
         # ... deployment logic here ...
-        
+
         # 4. Register component configuration in appropriate namespace
         component_config = {
             'endpoint_url': 'https://my-component.example.com',
@@ -602,7 +602,7 @@ class CloudOptimizationComponent:
                 'capabilities': ['analysis', 'reporting']
             })
         }
-        
+
         for key, value in component_config.items():
             self.ssm.put_parameter(
                 Name=f'/coa/components/{component_name}/{key}',
@@ -611,21 +611,21 @@ class CloudOptimizationComponent:
                 Description=f'{key} for {component_name}',
                 Overwrite=True
             )
-        
+
         print(f"✅ Component {component_name} deployed and registered")
         return True
 
 # Usage example
 def main():
     component = CloudOptimizationComponent()
-    
+
     # Show current configuration across all namespaces
     print("=== Current Configuration ===")
     print("Cognito Config:", component.get_shared_cognito_config())
     print("WA Security MCP:", component.get_mcp_server_config('wa_security_mcp'))
     print("Web Interface Config:", component.get_web_interface_config())
     print("Legacy Config:", component.get_legacy_config())
-    
+
     # Deploy new component
     component.deploy_new_component('my_new_component')
 

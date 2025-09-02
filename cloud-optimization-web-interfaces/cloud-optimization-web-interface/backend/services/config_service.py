@@ -18,11 +18,12 @@
 Configuration Service - Manages application configuration with SSM Parameter Store fallback to .env
 """
 
-import os
-import boto3
 import logging
-from typing import Dict, Any, Optional
+import os
 from pathlib import Path
+from typing import Any, Dict, Optional
+
+import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 
 logger = logging.getLogger(__name__)

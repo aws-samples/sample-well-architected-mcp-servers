@@ -20,9 +20,10 @@
 AWS Configuration Service
 """
 
-import boto3
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
+import boto3
 from services.config_service import get_config
 
 logger = logging.getLogger(__name__)

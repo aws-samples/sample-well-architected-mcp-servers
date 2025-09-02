@@ -22,8 +22,8 @@ Defines base interfaces for MCP orchestration and multi-source data handling
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional, AsyncGenerator
 from enum import Enum
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 
 class MCPServerType(Enum):

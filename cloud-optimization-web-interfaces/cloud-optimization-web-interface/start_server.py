@@ -20,8 +20,8 @@ Startup script for the Cloud Optimization MCP Web Interface
 """
 
 import os
-import sys
 import subprocess
+import sys
 import time
 import webbrowser
 from pathlib import Path

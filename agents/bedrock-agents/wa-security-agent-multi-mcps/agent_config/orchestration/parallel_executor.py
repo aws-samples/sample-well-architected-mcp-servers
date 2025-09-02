@@ -22,15 +22,15 @@ request queuing, load balancing, timeout handling, and circuit breaker patterns
 """
 
 import asyncio
-import time
 import random
-from typing import Dict, List, Any, Optional, Callable
-from dataclasses import dataclass, field
-from enum import Enum
+import time
 from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
 
-from agent_config.interfaces import ToolCall, ToolResult, ToolPriority
+from agent_config.interfaces import ToolCall, ToolPriority, ToolResult
 from agent_config.utils.logging_utils import get_logger
 
 logger = get_logger(__name__)

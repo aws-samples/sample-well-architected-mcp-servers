@@ -91,7 +91,7 @@ After successful deployment, access the web interface and look for the remote ro
 
 ```
 🔗 Cross-Account Role Deployment
-Click here to deploy a ReadOnly IAM Role in target AWS accounts to allow 
+Click here to deploy a ReadOnly IAM Role in target AWS accounts to allow
 Cloud Optimization Assistant to scan your infrastructure for security analysis.
 ```
 
@@ -100,7 +100,7 @@ Cloud Optimization Assistant to scan your infrastructure for security analysis.
 Click the deployment link to open the AWS CloudFormation console with pre-configured parameters:
 
 1. **Review Template**: The template includes read-only permissions only
-2. **Configure Parameters**: 
+2. **Configure Parameters**:
    - Stack Name: `remote-mcp-readonly-role` (or customize)
    - Role Name: `CrossAccountMCPRole` (or customize)
    - Environment: Select appropriate environment tag

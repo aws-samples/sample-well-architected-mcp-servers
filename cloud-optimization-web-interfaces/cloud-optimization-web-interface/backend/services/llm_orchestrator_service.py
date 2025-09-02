@@ -21,25 +21,26 @@ FIXED VERSION: Handles Bedrock initialization failures gracefully
 """
 
 import json
-import boto3
 import logging
-from typing import Dict, List, Any
 from datetime import datetime
+from typing import Any, Dict, List
 
+import boto3
 from models.chat_models import (
-    ChatSession,
     BedrockResponse,
+    ChatSession,
     ToolExecution,
     ToolExecutionStatus,
 )
-from services.mcp_client_service import MCPClientService
 from services.config_service import get_config
+from services.mcp_client_service import MCPClientService
 
 logger = logging.getLogger(__name__)
 
 
 class BedrockInitializationError(Exception):
     """Custom exception for Bedrock initialization failures"""
+
     pass
 
 
@@ -69,11 +70,13 @@ class LLMOrchestratorService:
             except Exception as e:
                 error_msg = f"Failed to initialize Bedrock Runtime client: {str(e)}"
                 logger.error(error_msg)
-                self._bedrock_initialization_error = BedrockInitializationError(error_msg)
-                
+                self._bedrock_initialization_error = BedrockInitializationError(
+                    error_msg
+                )
+
         if self._bedrock_initialization_error:
             raise self._bedrock_initialization_error
-            
+
         return self._bedrock_runtime
 
     def _is_bedrock_available(self) -> bool:
@@ -89,7 +92,7 @@ class LLMOrchestratorService:
         try:
             # Check MCP service
             mcp_status = await self.mcp_service.health_check()
-            
+
             # Check Bedrock availability
             bedrock_available = self._is_bedrock_available()
 
@@ -282,20 +285,25 @@ You should be proactive in suggesting related analyses that might be valuable to
         self, message: str, session: ChatSession
     ) -> BedrockResponse:
         """Fallback processing when Bedrock is not available"""
-        
+
         logger.warning("Processing message without Bedrock - using rule-based routing")
-        
+
         # Simple rule-based tool selection
         tool_executions = []
         tool_results = []
-        
+
         # Basic keyword matching for tool selection
         message_lower = message.lower()
-        
-        if any(word in message_lower for word in ['security', 'secure', 'vulnerability', 'compliance']):
+
+        if any(
+            word in message_lower
+            for word in ["security", "secure", "vulnerability", "compliance"]
+        ):
             # Security-related query
             try:
-                result = await self.mcp_service.call_tool("CheckSecurityServices", {"region": "us-east-1"})
+                result = await self.mcp_service.call_tool(
+                    "CheckSecurityServices", {"region": "us-east-1"}
+                )
                 tool_execution = ToolExecution(
                     tool_name="CheckSecurityServices",
                     parameters={"region": "us-east-1"},
@@ -304,14 +312,20 @@ You should be proactive in suggesting related analyses that might be valuable to
                     timestamp=datetime.utcnow(),
                 )
                 tool_executions.append(tool_execution)
-                tool_results.append({"tool_name": "CheckSecurityServices", "result": result})
+                tool_results.append(
+                    {"tool_name": "CheckSecurityServices", "result": result}
+                )
             except Exception as e:
                 logger.error(f"Tool execution failed: {e}")
-        
-        elif any(word in message_lower for word in ['storage', 'encrypt', 's3', 'ebs', 'rds']):
+
+        elif any(
+            word in message_lower for word in ["storage", "encrypt", "s3", "ebs", "rds"]
+        ):
             # Storage-related query
             try:
-                result = await self.mcp_service.call_tool("CheckStorageEncryption", {"region": "us-east-1"})
+                result = await self.mcp_service.call_tool(
+                    "CheckStorageEncryption", {"region": "us-east-1"}
+                )
                 tool_execution = ToolExecution(
                     tool_name="CheckStorageEncryption",
                     parameters={"region": "us-east-1"},
@@ -320,13 +334,15 @@ You should be proactive in suggesting related analyses that might be valuable to
                     timestamp=datetime.utcnow(),
                 )
                 tool_executions.append(tool_execution)
-                tool_results.append({"tool_name": "CheckStorageEncryption", "result": result})
+                tool_results.append(
+                    {"tool_name": "CheckStorageEncryption", "result": result}
+                )
             except Exception as e:
                 logger.error(f"Tool execution failed: {e}")
-        
+
         # Generate a basic response without LLM
         response_text = self._generate_fallback_response(message, tool_results)
-        
+
         return BedrockResponse(
             response=response_text,
             tool_executions=tool_executions,
@@ -335,9 +351,11 @@ You should be proactive in suggesting related analyses that might be valuable to
             structured_data={"tool_results": tool_results} if tool_results else None,
         )
 
-    def _generate_fallback_response(self, message: str, tool_results: List[Dict[str, Any]]) -> str:
+    def _generate_fallback_response(
+        self, message: str, tool_results: List[Dict[str, Any]]
+    ) -> str:
         """Generate a basic response without using Bedrock LLM"""
-        
+
         if not tool_results:
             return f"""I understand you're asking about: "{message}"
 
@@ -345,37 +363,49 @@ Unfortunately, I'm currently operating in limited mode due to a service issue. I
 
 Available capabilities:
 - Security assessments (CheckSecurityServices)
-- Storage encryption analysis (CheckStorageEncryption)  
+- Storage encryption analysis (CheckStorageEncryption)
 - Network security checks (CheckNetworkSecurity)
 - Service discovery (ListServicesInRegion)
 
 Please try rephrasing your request with specific keywords like "security", "storage", or "network" to trigger the appropriate analysis tools."""
 
         # Basic summary of tool results
-        response_parts = [f"I've analyzed your request: \"{message}\"\n"]
-        
+        response_parts = [f'I\'ve analyzed your request: "{message}"\n']
+
         for tool_result in tool_results:
             tool_name = tool_result["tool_name"]
             result = tool_result["result"]
-            
+
             response_parts.append(f"**{tool_name} Results:**")
-            
+
             if isinstance(result, dict):
                 # Extract key metrics
                 if "resources_checked" in result:
-                    response_parts.append(f"- Resources checked: {result['resources_checked']}")
+                    response_parts.append(
+                        f"- Resources checked: {result['resources_checked']}"
+                    )
                 if "compliant_resources" in result:
-                    response_parts.append(f"- Compliant resources: {result['compliant_resources']}")
+                    response_parts.append(
+                        f"- Compliant resources: {result['compliant_resources']}"
+                    )
                 if "non_compliant_resources" in result:
-                    response_parts.append(f"- Non-compliant resources: {result['non_compliant_resources']}")
+                    response_parts.append(
+                        f"- Non-compliant resources: {result['non_compliant_resources']}"
+                    )
                 if "all_enabled" in result:
-                    status = "All services enabled" if result["all_enabled"] else "Some services not enabled"
+                    status = (
+                        "All services enabled"
+                        if result["all_enabled"]
+                        else "Some services not enabled"
+                    )
                     response_parts.append(f"- Status: {status}")
-            
+
             response_parts.append("")
-        
-        response_parts.append("Note: I'm currently operating in limited mode. For detailed analysis and recommendations, please contact your system administrator about the Bedrock service configuration.")
-        
+
+        response_parts.append(
+            "Note: I'm currently operating in limited mode. For detailed analysis and recommendations, please contact your system administrator about the Bedrock service configuration."
+        )
+
         return "\n".join(response_parts)
 
     async def _analyze_user_request(
@@ -462,34 +492,48 @@ If no tools are needed (e.g., for general questions), return an empty tools_to_u
     def _analyze_user_request_fallback(self, message: str) -> Dict[str, Any]:
         """Fallback analysis when Bedrock is not available"""
         message_lower = message.lower()
-        
+
         tools_to_use = []
-        
-        if any(word in message_lower for word in ['security', 'secure', 'vulnerability', 'compliance']):
-            tools_to_use.append({
-                "name": "CheckSecurityServices",
-                "arguments": {"region": "us-east-1"},
-                "reason": "Security-related query detected"
-            })
-        
-        if any(word in message_lower for word in ['storage', 'encrypt', 's3', 'ebs', 'rds']):
-            tools_to_use.append({
-                "name": "CheckStorageEncryption", 
-                "arguments": {"region": "us-east-1"},
-                "reason": "Storage-related query detected"
-            })
-        
-        if any(word in message_lower for word in ['network', 'vpc', 'security group', 'load balancer']):
-            tools_to_use.append({
-                "name": "CheckNetworkSecurity",
-                "arguments": {"region": "us-east-1"}, 
-                "reason": "Network-related query detected"
-            })
-        
+
+        if any(
+            word in message_lower
+            for word in ["security", "secure", "vulnerability", "compliance"]
+        ):
+            tools_to_use.append(
+                {
+                    "name": "CheckSecurityServices",
+                    "arguments": {"region": "us-east-1"},
+                    "reason": "Security-related query detected",
+                }
+            )
+
+        if any(
+            word in message_lower for word in ["storage", "encrypt", "s3", "ebs", "rds"]
+        ):
+            tools_to_use.append(
+                {
+                    "name": "CheckStorageEncryption",
+                    "arguments": {"region": "us-east-1"},
+                    "reason": "Storage-related query detected",
+                }
+            )
+
+        if any(
+            word in message_lower
+            for word in ["network", "vpc", "security group", "load balancer"]
+        ):
+            tools_to_use.append(
+                {
+                    "name": "CheckNetworkSecurity",
+                    "arguments": {"region": "us-east-1"},
+                    "reason": "Network-related query detected",
+                }
+            )
+
         return {
             "intent": "automated analysis based on keywords",
             "tools_to_use": tools_to_use,
-            "analysis_approach": "rule-based tool selection"
+            "analysis_approach": "rule-based tool selection",
         }
 
     async def _generate_final_response(
@@ -504,8 +548,12 @@ If no tools are needed (e.g., for general questions), return an empty tools_to_u
         # Check if Bedrock is available
         if not self._is_bedrock_available():
             return {
-                "response": self._generate_fallback_response(original_message, tool_results),
-                "structured_data": {"tool_results": tool_results} if tool_results else None,
+                "response": self._generate_fallback_response(
+                    original_message, tool_results
+                ),
+                "structured_data": {"tool_results": tool_results}
+                if tool_results
+                else None,
                 "human_summary": None,
             }
 
@@ -594,7 +642,9 @@ Present all information in natural language format suitable for business stakeho
         except BedrockInitializationError:
             logger.warning("Bedrock not available for final response generation")
             return {
-                "response": self._generate_fallback_response(original_message, tool_results),
+                "response": self._generate_fallback_response(
+                    original_message, tool_results
+                ),
                 "structured_data": structured_data if structured_data else None,
                 "human_summary": None,
             }

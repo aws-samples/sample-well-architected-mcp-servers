@@ -10,11 +10,11 @@ Parameters:
       - staging
       - prod
     Description: Environment name
-  
+
   SourceBucket:
     Type: String
     Description: S3 bucket for source code storage
-  
+
   SourceKey:
     Type: String
     Default: source.zip

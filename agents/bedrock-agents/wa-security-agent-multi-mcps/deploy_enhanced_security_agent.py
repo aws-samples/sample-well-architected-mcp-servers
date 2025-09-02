@@ -21,13 +21,14 @@ Deployment script for Enhanced Security Agent with Multi-MCP Integration
 Configures and deploys the enhanced agent with multiple MCP server connections
 """
 
-import json
-import boto3
 import argparse
+import json
 import logging
-from typing import Dict, Any
 import os
 import sys
+from typing import Any, Dict
+
+import boto3
 
 # Add the parent directory to the path to import deployment utilities
 sys.path.append(

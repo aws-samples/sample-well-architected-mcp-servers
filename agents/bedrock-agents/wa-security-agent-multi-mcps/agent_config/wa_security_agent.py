@@ -24,14 +24,15 @@ Combines Claude 3.7 Sonnet with:
 
 import asyncio
 import json
-import boto3
+import logging
 from datetime import timedelta
-from typing import AsyncGenerator, List, Dict, Any, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
+
+import boto3
 from bedrock_agentcore.agent import Agent
 from bedrock_agentcore.memory import MemoryHook
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-import logging
 
 from .response_transformer import SecurityResponseTransformer
 

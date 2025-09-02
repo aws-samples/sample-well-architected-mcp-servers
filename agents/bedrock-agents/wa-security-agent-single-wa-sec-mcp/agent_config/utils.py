@@ -18,9 +18,10 @@
 Utility functions for Security Agent
 """
 
-import boto3
 import logging
 from typing import Optional
+
+import boto3
 
 logger = logging.getLogger(__name__)
 

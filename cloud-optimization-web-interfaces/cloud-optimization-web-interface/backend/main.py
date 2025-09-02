@@ -19,25 +19,28 @@ Cloud Optimization MCP Web Interface - FastAPI Backend
 Integrates AWS Bedrock with AgentCore MCP Server for cloud optimization assessments
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
 import json
-import uuid
 import logging
 import os
+import uuid
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from models.chat_models import ChatMessage, ChatSession, ToolExecution
+from pydantic import BaseModel
+from services.auth_service import AuthService
+from services.aws_config_service import AWSConfigService
+from services.bedrock_agent_service import BedrockAgentService
 
 # Import configuration service
 from services.config_service import config_service, get_config
 
-from services.bedrock_agent_service import BedrockAgentService
+# Import the new LLM orchestrator service
+from services.llm_orchestrator_service import LLMOrchestratorService
 from services.mcp_client_service import MCPClientService
-from services.auth_service import AuthService
-from services.aws_config_service import AWSConfigService
-from models.chat_models import ChatMessage, ChatSession, ToolExecution
 
 
 # Custom JSON encoder for datetime objects
@@ -95,7 +98,7 @@ async def validate_startup_requirements():
     # Validate AWS credentials and permissions
     try:
         import boto3
-        from botocore.exceptions import NoCredentialsError, ClientError
+        from botocore.exceptions import ClientError, NoCredentialsError
 
         # Test basic AWS connectivity
         sts_client = boto3.client("sts")
@@ -132,6 +135,7 @@ async def validate_startup_requirements():
         bedrock_client = boto3.client("bedrock", region_name=bedrock_region)
         models = bedrock_client.list_foundation_models(byOutputModality="TEXT")
         logger.info(f"✓ Bedrock connectivity verified in {bedrock_region}")
+        logger.info(f"  Foundation models available: {len(models['modelSummaries'])}")
 
     except Exception as e:
         logger.warning(f"⚠ Bedrock validation failed: {e}")
@@ -177,8 +181,6 @@ auth_service = AuthService()
 # Services
 aws_config_service = AWSConfigService()
 
-# Import the new LLM orchestrator service
-from services.llm_orchestrator_service import LLMOrchestratorService
 
 # Use LLM orchestrator as the primary service
 orchestrator_service = LLMOrchestratorService()

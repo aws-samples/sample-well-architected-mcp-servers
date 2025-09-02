@@ -157,7 +157,7 @@ When adding a new component, choose the appropriate pattern:
 For a component called `data_processor`:
 
 1. **Script**: `deploy_component_data_processor.py`
-2. **Parameters**: 
+2. **Parameters**:
    - `/coa/components/data_processor/lambda_arn`
    - `/coa/components/data_processor/queue_url`
    - `/coa/components/data_processor/api_endpoint`

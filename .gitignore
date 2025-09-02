@@ -570,3 +570,6 @@ memory-bank/*
 .clinerules
 
 .kiro**/**
+
+**-deploy/**
+cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend/config.js

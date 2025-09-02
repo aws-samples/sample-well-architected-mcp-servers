@@ -20,12 +20,12 @@ Logging utilities for Enhanced Security Agent
 Provides structured logging and monitoring capabilities
 """
 
-import logging
 import json
+import logging
 import time
-from typing import Dict, Any, Optional
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, Optional
 
 
 @dataclass

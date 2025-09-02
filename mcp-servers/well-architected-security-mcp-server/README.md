@@ -1,6 +1,6 @@
 # AWS Well-Architected Security Assessment Tool MCP Server (Sample Steamable-http Version)
 
-This repository contains a sample implementation of the AWS Well-Architected Security Assessment Tool MCP Server. This server is designed to be used as a standalone application. In the Cloud Optimization Assistant Demo project, this server has been changed to support streamable HTTP communication, and deployed into Amazon Bedrock AgentCore Runtime. 
+This repository contains a sample implementation of the AWS Well-Architected Security Assessment Tool MCP Server. This server is designed to be used as a standalone application. In the Cloud Optimization Assistant Demo project, this server has been changed to support streamable HTTP communication, and deployed into Amazon Bedrock AgentCore Runtime.
 
 ## If you are looking for the official latest version of the AWS Well-Architected Security Assessment Tool MCP Server, please visit the [awslabs/mcp repo](https://github.com/awslabs/mcp)
 [![PyPI version](https://img.shields.io/pypi/v/awslabs.well-architected-security-mcp-server.svg)](https://pypi.org/project/awslabs.well-architected-security-mcp-server/)

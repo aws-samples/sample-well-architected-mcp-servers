@@ -22,19 +22,19 @@ Uses the actual MCP tools: aws___search_documentation, aws___read_documentation,
 """
 
 import time
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 try:
     from agent_config.interfaces import AWSKnowledgeIntegration, ToolResult
-    from agent_config.utils.logging_utils import get_logger
     from agent_config.utils.error_handling import ErrorHandler
+    from agent_config.utils.logging_utils import get_logger
 except ImportError:
     # Fallback for standalone testing
-    from abc import ABC, abstractmethod
-    from typing import Dict, List, Any
     import logging
+    from abc import ABC, abstractmethod
+    from typing import Any, Dict, List
 
     class AWSKnowledgeIntegration(ABC):
         @abstractmethod

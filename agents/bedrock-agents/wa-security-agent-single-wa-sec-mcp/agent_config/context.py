@@ -20,7 +20,9 @@ Context management for Security Agent
 
 from contextvars import ContextVar
 from typing import Optional
+
 from bedrock_agentcore.queue import ResponseQueue
+
 from .security_agent import SecurityAgent
 
 

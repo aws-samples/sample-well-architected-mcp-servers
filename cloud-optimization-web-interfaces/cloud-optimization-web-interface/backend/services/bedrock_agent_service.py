@@ -20,15 +20,15 @@ Provides comprehensive AWS security assessments using multi-MCP orchestration
 """
 
 import json
-import boto3
 import logging
-from typing import Dict, Any
 from datetime import datetime
-from botocore.exceptions import ClientError
+from typing import Any, Dict
 
+import boto3
+from botocore.exceptions import ClientError
 from models.chat_models import (
-    ChatSession,
     BedrockResponse,
+    ChatSession,
     ToolExecution,
     ToolExecutionStatus,
 )
@@ -237,7 +237,8 @@ class BedrockAgentService:
                     )
                     if json_matches:
                         structured_data = json.loads(json_matches[0])
-                except:
+                except Exception as e:
+                    logger.error(f"Error parsing JSON from response: {e}")
                     pass
 
             return BedrockResponse(
@@ -303,8 +304,9 @@ class BedrockAgentService:
                                 parameters[param_name] = [
                                     item.strip() for item in param_value.split(",")
                                 ]
-                            except:
+                            except Exception as e:
                                 parameters[param_name] = [param_value]
+                                logger.info(f"{e}")
                         else:
                             parameters[param_name] = param_value
 

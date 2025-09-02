@@ -20,9 +20,10 @@
 Authentication Service - Cognito integration
 """
 
-import boto3
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
+import boto3
 
 logger = logging.getLogger(__name__)
 

@@ -39,7 +39,6 @@ from src.server import (
     check_network_security_prompt,
     check_storage_security_prompt,
     main,
-    mcp,
     security_assessment_precheck,
 )
 
@@ -103,6 +102,3 @@ def test_main():
 
                 # Verify mcp.run was called
                 mock_mcp_run.assert_called_once()
-
-
-

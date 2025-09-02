@@ -287,7 +287,7 @@ COGNITO_DISCOVERY_URL=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXX
 # Development environment
 ./deploy-coa.sh --stack-name cloud-optimization-assistant-dev --environment dev --region us-east-1
 
-# Staging environment  
+# Staging environment
 ./deploy-coa.sh --stack-name cloud-optimization-assistant-staging --environment staging --region us-east-1
 
 # Production environment
@@ -351,12 +351,12 @@ python3 deployment-scripts/components/deploy_shared_cognito.py \
    aws cloudformation describe-stacks \
      --stack-name cloud-optimization-assistant \
      --query 'Stacks[0].Outputs'
-   
+
    # Or check standalone Cognito stack
    aws cloudformation describe-stacks \
      --stack-name cloud-optimization-agentflow-cognito \
      --query 'Stacks[0].Outputs'
-   
+
    # Verify Parameter Store configuration
    aws ssm get-parameters-by-path --path /coa/cognito/ --recursive
    ```

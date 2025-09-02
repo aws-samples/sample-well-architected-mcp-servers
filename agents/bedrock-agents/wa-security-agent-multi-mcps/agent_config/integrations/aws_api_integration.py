@@ -23,18 +23,18 @@ Uses the actual MCP tools: call_aws and suggest_aws_commands
 
 import json
 import time
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 try:
     from agent_config.interfaces import AWSAPIIntegration, ToolResult
-    from agent_config.utils.logging_utils import get_logger
     from agent_config.utils.error_handling import ErrorHandler
+    from agent_config.utils.logging_utils import get_logger
 except ImportError:
     # Fallback for standalone testing
-    from abc import ABC, abstractmethod
-    from typing import Dict, List, Any
     import logging
+    from abc import ABC, abstractmethod
+    from typing import Any, Dict, List
 
     class AWSAPIIntegration(ABC):
         @abstractmethod

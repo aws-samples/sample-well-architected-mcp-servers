@@ -22,9 +22,9 @@ Specialized handlers for different MCP server types
 
 from .aws_knowledge_integration import (
     AWSKnowledgeIntegrationImpl,
-    Document,
     BestPractices,
     ComplianceGuide,
+    Document,
 )
 
 __all__ = [

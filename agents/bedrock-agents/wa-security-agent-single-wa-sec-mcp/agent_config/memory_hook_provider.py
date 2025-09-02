@@ -18,9 +18,11 @@
 Memory Hook Provider for Security Agent
 """
 
-from bedrock_agentcore.memory import MemoryClient, MemoryHook as BaseMemoryHook
-from typing import Dict, Any
 import logging
+from typing import Any, Dict
+
+from bedrock_agentcore.memory import MemoryClient
+from bedrock_agentcore.memory import MemoryHook as BaseMemoryHook
 
 logger = logging.getLogger(__name__)
 

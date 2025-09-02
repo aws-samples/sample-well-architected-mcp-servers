@@ -42,7 +42,6 @@ from src.server import (
     context_storage,
     get_stored_security_context,
     list_services_in_region_tool,
-    main,
 )
 
 
@@ -509,6 +508,3 @@ async def test_check_network_security_tool_error(mock_ctx, mock_boto3_session):
         assert "error" in result
         assert "Test error" in result["error"]
         assert "message" in result
-
-
-

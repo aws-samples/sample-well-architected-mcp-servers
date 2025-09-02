@@ -21,65 +21,67 @@
 Utility script to retrieve shared Cognito configuration from Parameter Store
 """
 
-import boto3
-import json
 import argparse
+import json
 import sys
-from typing import Dict, Any
+from typing import Any, Dict
+
+import boto3
+
 
 def get_cognito_config_from_parameters(region: str = "us-east-1") -> Dict[str, Any]:
     """
     Get Cognito configuration from Parameter Store using standardized paths
-    
+
     Args:
         region: AWS region
-        
+
     Returns:
         Dictionary with Cognito configuration
     """
-    ssm_client = boto3.client('ssm', region_name=region)
-    
+    ssm_client = boto3.client("ssm", region_name=region)
+
     parameter_names = [
-        '/coa/cognito/user_pool_id',
-        '/coa/cognito/web_app_client_id',
-        '/coa/cognito/api_client_id',
-        '/coa/cognito/mcp_server_client_id',
-        '/coa/cognito/identity_pool_id',
-        '/coa/cognito/user_pool_domain',
-        '/coa/cognito/discovery_url',
-        '/coa/cognito/region',
-        '/coa/cognito/user_pool_arn'
+        "/coa/cognito/user_pool_id",
+        "/coa/cognito/web_app_client_id",
+        "/coa/cognito/api_client_id",
+        "/coa/cognito/mcp_server_client_id",
+        "/coa/cognito/identity_pool_id",
+        "/coa/cognito/user_pool_domain",
+        "/coa/cognito/discovery_url",
+        "/coa/cognito/region",
+        "/coa/cognito/user_pool_arn",
     ]
-    
+
     try:
         response = ssm_client.get_parameters(
-            Names=parameter_names,
-            WithDecryption=False
+            Names=parameter_names, WithDecryption=False
         )
-        
+
         config = {}
-        for param in response['Parameters']:
-            name = param['Name']
-            value = param['Value']
-            
+        for param in response["Parameters"]:
+            name = param["Name"]
+            value = param["Value"]
+
             # Use the parameter name as the key (without the prefix)
-            key = name.replace('/coa/cognito/', '')
+            key = name.replace("/coa/cognito/", "")
             config[key] = value
-        
+
         # Check for missing parameters
-        missing_params = response.get('InvalidParameters', [])
+        missing_params = response.get("InvalidParameters", [])
         if missing_params:
             print(f"⚠️ Missing parameters: {missing_params}")
-        
+
         return config
-        
+
     except Exception as e:
         print(f"❌ Failed to get Cognito configuration: {e}")
         raise
 
+
 def print_config(config: Dict[str, Any], format_type: str = "table"):
     """Print configuration in different formats"""
-    
+
     if format_type == "json":
         print(json.dumps(config, indent=2))
     elif format_type == "env":
@@ -87,7 +89,9 @@ def print_config(config: Dict[str, Any], format_type: str = "table"):
         print(f"export COGNITO_USER_POOL_ID={config.get('user_pool_id', '')}")
         print(f"export COGNITO_WEB_APP_CLIENT_ID={config.get('web_app_client_id', '')}")
         print(f"export COGNITO_API_CLIENT_ID={config.get('api_client_id', '')}")
-        print(f"export COGNITO_MCP_SERVER_CLIENT_ID={config.get('mcp_server_client_id', '')}")
+        print(
+            f"export COGNITO_MCP_SERVER_CLIENT_ID={config.get('mcp_server_client_id', '')}"
+        )
         print(f"export COGNITO_IDENTITY_POOL_ID={config.get('identity_pool_id', '')}")
         print(f"export COGNITO_USER_POOL_DOMAIN={config.get('user_pool_domain', '')}")
         print(f"export COGNITO_DISCOVERY_URL={config.get('discovery_url', '')}")
@@ -101,30 +105,38 @@ def print_config(config: Dict[str, Any], format_type: str = "table"):
         print("🔐 Shared Cognito Configuration")
         print("=" * 50)
         for key, value in config.items():
-            formatted_key = key.replace('_', ' ').title()
+            formatted_key = key.replace("_", " ").title()
             print(f"{formatted_key:25}: {value}")
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Get shared Cognito configuration')
-    parser.add_argument('--region', default='us-east-1',
-                       help='AWS region (default: us-east-1)')
-    parser.add_argument('--format', choices=['table', 'json', 'env', 'yaml'],
-                       default='table',
-                       help='Output format (default: table)')
-    parser.add_argument('--parameter', 
-                       help='Get specific parameter (e.g., user_pool_id)')
-    
+    parser = argparse.ArgumentParser(description="Get shared Cognito configuration")
+    parser.add_argument(
+        "--region", default="us-east-1", help="AWS region (default: us-east-1)"
+    )
+    parser.add_argument(
+        "--format",
+        choices=["table", "json", "env", "yaml"],
+        default="table",
+        help="Output format (default: table)",
+    )
+    parser.add_argument(
+        "--parameter", help="Get specific parameter (e.g., user_pool_id)"
+    )
+
     args = parser.parse_args()
-    
+
     try:
         config = get_cognito_config_from_parameters(args.region)
-        
+
         if not config:
             print("❌ No Cognito configuration found in Parameter Store")
             print("Make sure to deploy the shared Cognito infrastructure first:")
-            print("  python deployment-scripts/deploy_shared_cognito.py --create-test-user")
+            print(
+                "  python deployment-scripts/deploy_shared_cognito.py --create-test-user"
+            )
             sys.exit(1)
-        
+
         if args.parameter:
             # Get specific parameter
             if args.parameter in config:
@@ -136,10 +148,11 @@ def main():
         else:
             # Print all configuration
             print_config(config, args.format)
-        
+
     except Exception as e:
         print(f"❌ Error: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

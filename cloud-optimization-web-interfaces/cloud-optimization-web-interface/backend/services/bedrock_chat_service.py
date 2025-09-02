@@ -20,10 +20,11 @@
 Bedrock Chat Service - Basic chat functionality
 """
 
-import boto3
 import logging
-from typing import Dict, Any
 from datetime import datetime
+from typing import Any, Dict
+
+import boto3
 
 logger = logging.getLogger(__name__)
 

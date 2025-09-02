@@ -23,9 +23,9 @@ Simple HTTP server to serve the frontend for local testing
 
 import http.server
 import socketserver
-import webbrowser
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 

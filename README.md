@@ -20,8 +20,8 @@ Includes detailed guides for:
 ├── 🌐 cloud-optimization-web-interfaces/    # Web interfaces for user interaction
 ├── 🤖 agents/                               # Agents for specialized assessments
 |         ├──bedrock-agents/                 # Bedrock agent set (to be deployed into Bedrock Agent)
-|         |   ├──wa-security-agent-multi-mcps/    
-|         |   |                              # Multi-MCP (WA_SEC + AWS_API + AWS_Knowledge)  
+|         |   ├──wa-security-agent-multi-mcps/
+|         |   |                              # Multi-MCP (WA_SEC + AWS_API + AWS_Knowledge)
 |         |   ├──wa-security-agent-single-wa-sec-mcp/
 |         |   |                              # Single-MCP (WA_SEC)
 |         |   └──examples/
@@ -344,17 +344,16 @@ The deployment is divided into 7 stages:
 - [x] Centralized authentication and configuration
 
 ### Phase 2: Enhanced Security & Operations 🔄
+- [x] Enhanced cross-account capabilities
 - [ ] Advanced security analysis and reporting
-- [ ] Multi-account security monitoring
 - [ ] Automated remediation suggestions
-- [ ] Enhanced cross-account capabilities
 
 ### Phase 3: Multi-Pillar Expansion 🔮
 - [ ] Cost optimization analysis
 - [ ] Reliability assessment capabilities
-- [ ] Performance efficiency analysis
-- [ ] Operational excellence evaluation
+- [ ] Operational excellence evaluation (EKS)
 - [ ] Multi-lens assessments (Serverless, SaaS, IoT, ML)
+- [ ] Performance analysis (RDS - Performance Insight)
 
 ## 📁 **Generated Files and Directories**
 
@@ -383,7 +382,7 @@ Each component has its own development guidelines:
 - **Web interfaces**: See `cloud-optimization-web-interfaces/*/README.md`
 - **Bedrock agents**: See `agents/bedrock-agents/*/README.md`
 - **MCP servers**: See `mcp-servers/*/README.md`
-- **Deployment scripts**: See `deployment-scripts/README.md`
+- **Deployment scripts**: See [deployment-scripts/README.md](deployment-scripts/README.md)
 
 ### Documentation
 - **Complete guides**: See [Documentation Center](docs/README.md)
