@@ -1,97 +1,150 @@
-# AWS Well-Architected Cloud Optimization Suite - Documentation
+# Cloud Optimization Assistant - Documentation
 
-Welcome to the comprehensive documentation for the AWS Well-Architected Cloud Optimization Suite.
+Welcome to the comprehensive documentation for the Cloud Optimization Assistant platform.
 
 ## 📚 Documentation Index
 
+### 📋 Core Documentation (This Folder)
+- **[Architecture Diagram](architecture_diagram.html)** - Interactive HTML diagram showing system architecture
+- **[Cognito Centralization Guide](cognito-centralization-guide.md)** - Complete guide for shared Cognito user pool implementation
+- **[Cross-Account Role Setup](cross-account-role-setup.md)** - Comprehensive guide for cross-account IAM role deployment and security
+- **[Parameter Store Configuration](parameter-store-configuration.md)** - Complete guide to Parameter Store usage and configuration management
+
 ### 🏗️ Architecture & Design
-- **[Architecture Diagram](architecture_diagram.html)** - Interactive HTML diagram showing all 15 components across 5 layers
-- **[Directory Structure](../DIRECTORY_STRUCTURE.md)** - Complete project organization and component overview
 - **[Main README](../README.md)** - Project overview and quick start guide
+- **[Deployment Resume Guide](../DEPLOYMENT_RESUME_GUIDE.md)** - Guide for resuming failed deployments
+- **[Deployment Updates](../DEPLOYMENT_UPDATES.md)** - Latest deployment improvements and changes
 
 ### 🤖 Bedrock Agents
-- **[Enhanced Security Agent](../bedrock-agents/security-assessment-agent/ENHANCED_AGENT_README.md)** - Comprehensive guide to the enhanced security agent with response transformation
-- **[Security Agent Tests](../bedrock-agents/security-assessment-agent/test_transformer_only.py)** - Demonstration of response transformation capabilities
+- **[WA Security Agent Multi-MCPs](../agents/bedrock-agents/wa-security-agent-multi-mcps/)** - Enhanced security agent with multiple MCP integrations
+- **[Agent Configuration](../agents/bedrock-agents/wa-security-agent-multi-mcps/agent_config/)** - Agent orchestration and integration configurations
+- **[Agent Tests](../agents/bedrock-agents/wa-security-agent-multi-mcps/tests/)** - Comprehensive test suite for agent functionality
 
 ### 🔧 MCP Servers
-- **[Security MCP Server](../mcp-servers/well-architected-security-mcp-server/README.md)** - Well-Architected Security assessment tools
-- **[MCP Server Source](../mcp-servers/well-architected-security-mcp-server/src/server.py)** - Implementation details and available tools
+- **[Well-Architected Security MCP Server](../mcp-servers/well-architected-security-mcp-server/README.md)** - Security assessment tools and capabilities
+- **[MCP Server Implementation](../mcp-servers/well-architected-security-mcp-server/src/)** - Source code and implementation details
 
 ### 🌐 Web Interfaces
-- **[Web Interface](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/README.md)** - Interactive web application for cloud optimization
-- **[Frontend](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend/index.html)** - Enhanced UI with collapsible menus and status indicators
+- **[Cloud Optimization Web Interface](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/README.md)** - Interactive web application
+- **[Frontend Interface](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend/index.html)** - User interface with deployment links
+- **[Backend Services](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/backend/)** - API services and configuration
 
 ### 🚀 Deployment & Setup
-- **[Cross-Account Setup Guide](../CROSS_ACCOUNT_SETUP_GUIDE.md)** - Complete guide for cross-account IAM configuration
-- **[Deployment Scripts](../deployment-scripts/)** - Automated deployment for all components
+- **[Main Deployment Script](../deploy-coa.sh)** - Primary deployment script with resume functionality
+- **[Deployment Scripts](../deployment-scripts/)** - Automated deployment components and utilities
+- **[Component Deployment](../deployment-scripts/components/)** - Individual component deployment scripts
+- **[Remote Role Generation](../deployment-scripts/generate_remote_role_stack.py)** - Cross-account role template generator
 
 ### 🧪 Testing & Validation
 - **[Test Files](../test-files/)** - Development and integration test files
-- **[Configuration Tests](../test_server_config.py)** - Server configuration validation
+- **[Validation Scripts](../validate-deploy-coa.sh)** - Deployment validation utilities
 
 ## 🎯 Quick Navigation
 
 ### For Developers
-1. **Getting Started**: [Main README](../README.md) → [Directory Structure](../DIRECTORY_STRUCTURE.md)
-2. **Architecture**: [Architecture Diagram](architecture_diagram.html)
-3. **Implementation**: Component-specific READMEs in each directory
+1. **Getting Started**: [Main README](../README.md) → [Architecture Diagram](architecture_diagram.html)
+2. **Configuration**: [Parameter Store Guide](parameter-store-configuration.md) → [Cognito Setup](cognito-centralization-guide.md)
+3. **Implementation**: Component-specific documentation in respective directories
 
 ### For Security Teams
-1. **Security Agent**: [Enhanced Security Agent Guide](../bedrock-agents/security-assessment-agent/ENHANCED_AGENT_README.md)
+1. **Security Agent**: [WA Security Agent](../agents/bedrock-agents/wa-security-agent-multi-mcps/)
 2. **MCP Tools**: [Security MCP Server](../mcp-servers/well-architected-security-mcp-server/README.md)
-3. **Web Interface**: [Cloud Optimization Interface](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/README.md)
+3. **Cross-Account Access**: [Cross-Account Role Setup](cross-account-role-setup.md)
+4. **Web Interface**: [Cloud Optimization Interface](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/README.md)
 
 ### For DevOps/Deployment
-1. **Setup Guide**: [Cross-Account Configuration](../CROSS_ACCOUNT_SETUP_GUIDE.md)
-2. **Deployment**: [Deployment Scripts](../deployment-scripts/)
-3. **Testing**: [Test Configuration](../test_server_config.py)
+1. **Primary Deployment**: [Main Deployment Script](../deploy-coa.sh) → [Resume Guide](../DEPLOYMENT_RESUME_GUIDE.md)
+2. **Cross-Account Setup**: [Cross-Account Role Setup](cross-account-role-setup.md)
+3. **Configuration Management**: [Parameter Store Guide](parameter-store-configuration.md)
+4. **Authentication**: [Cognito Centralization](cognito-centralization-guide.md)
+5. **Component Deployment**: [Deployment Scripts](../deployment-scripts/)
+
+### For System Administrators
+1. **Authentication Setup**: [Cognito Centralization Guide](cognito-centralization-guide.md)
+2. **Configuration Management**: [Parameter Store Configuration](parameter-store-configuration.md)
+3. **Cross-Account Security**: [Cross-Account Role Setup](cross-account-role-setup.md)
+4. **Troubleshooting**: [Deployment Resume Guide](../DEPLOYMENT_RESUME_GUIDE.md)
 
 ## 📊 Component Overview
 
 | Component | Status | Documentation | Purpose |
 |-----------|--------|---------------|---------|
 | **Web Interface** | ✅ Active | [Frontend](../cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend/index.html) | User interaction and visualization |
-| **Security Agent** | ✅ Active | [Enhanced Agent](../bedrock-agents/security-assessment-agent/ENHANCED_AGENT_README.md) | AI-powered security assessments |
-| **Security MCP Server** | ✅ Active | [MCP Server](../mcp-servers/well-architected-security-mcp-server/README.md) | Security assessment tools |
-| **Deployment Scripts** | ✅ Active | [Scripts](../deployment-scripts/) | Automated deployment |
-| **Cross-Account Setup** | ✅ Active | [Setup Guide](../CROSS_ACCOUNT_SETUP_GUIDE.md) | IAM configuration |
+| **WA Security Agent** | ✅ Active | [Multi-MCP Agent](../agents/bedrock-agents/wa-security-agent-multi-mcps/) | AI-powered security assessments with multiple MCP integrations |
+| **Security MCP Server** | ✅ Active | [MCP Server](../mcp-servers/well-architected-security-mcp-server/README.md) | Security assessment tools and capabilities |
+| **Deployment System** | ✅ Active | [Main Script](../deploy-coa.sh) | Automated deployment with resume functionality |
+| **Cross-Account Roles** | ✅ Active | [Setup Guide](cross-account-role-setup.md) | Read-only IAM roles for cross-account analysis |
+| **Authentication** | ✅ Active | [Cognito Guide](cognito-centralization-guide.md) | Centralized user authentication |
+| **Configuration** | ✅ Active | [Parameter Store](parameter-store-configuration.md) | Centralized configuration management |
 
 ## 🔄 Recent Updates
 
-### Enhanced Security Agent (Latest)
-- **Response Transformation**: Raw MCP responses → Comprehensive assessments
-- **Visual Formatting**: Emojis, colors, structured layouts
-- **Risk Prioritization**: Automatic scoring and severity grouping
-- **Executive Summaries**: Management-ready reports
-- **Session Intelligence**: Context building across assessments
+### Deployment System Enhancements (Latest)
+- **Resume Functionality**: Resume deployments from specific stages after failures
+- **Progress Tracking**: Visual progress indicators and stage completion tracking
+- **Parameter Store Integration**: Centralized configuration management across all components
+- **Cross-Account Role Generation**: Automated CloudFormation template generation for target accounts
 
-### Web Interface Enhancements
-- **Collapsible Menus**: Space-efficient navigation
-- **Status Indicators**: Visual service health monitoring
-- **AWS Configuration**: Streamlined account setup
-- **Real-time Updates**: WebSocket-based communication
+### Authentication & Configuration
+- **Centralized Cognito**: Shared user pool across all components with automatic Parameter Store integration
+- **Multi-Namespace Parameters**: Organized parameter hierarchy for different component types
+- **Configuration Discovery**: Automatic configuration discovery without manual setup
 
-### Architecture Improvements
-- **15 Components**: Comprehensive suite across 5 layers
-- **Modular Design**: Independent development and deployment
-- **Scalable Structure**: Ready for additional Well-Architected pillars
+### Security & Cross-Account Access
+- **Read-Only Cross-Account Roles**: Secure, auditable access to target AWS accounts
+- **Data Privacy Protection**: No data access permissions, only metadata and configuration analysis
+- **MCP Server Integration**: Enhanced cross-account capabilities for security analysis
+
+### Web Interface & User Experience
+- **One-Click Deployment**: Direct CloudFormation deployment links for cross-account roles
+- **Enhanced UI**: Improved user interface with better navigation and status indicators
+- **Real-time Integration**: Seamless integration with backend services and Bedrock agents
 
 ## 🎉 Getting Started
 
 1. **Explore Architecture**: Open [Architecture Diagram](architecture_diagram.html) in your browser
 2. **Read Overview**: Start with [Main README](../README.md)
-3. **Choose Your Path**:
-   - **Security Focus**: [Enhanced Security Agent](../bedrock-agents/security-assessment-agent/ENHANCED_AGENT_README.md)
-   - **Development**: [Directory Structure](../DIRECTORY_STRUCTURE.md)
-   - **Deployment**: [Cross-Account Setup](../CROSS_ACCOUNT_SETUP_GUIDE.md)
+3. **Deploy the Platform**: Use [Main Deployment Script](../deploy-coa.sh) for complete setup
+4. **Choose Your Focus**:
+   - **Security Analysis**: [Cross-Account Role Setup](cross-account-role-setup.md) → [WA Security Agent](../agents/bedrock-agents/wa-security-agent-multi-mcps/)
+   - **Configuration Management**: [Parameter Store Guide](parameter-store-configuration.md) → [Cognito Setup](cognito-centralization-guide.md)
+   - **Development**: Component-specific documentation in respective directories
+   - **Troubleshooting**: [Deployment Resume Guide](../DEPLOYMENT_RESUME_GUIDE.md)
 
-## 📞 Support
+## 📖 Documentation Quick Reference
+
+### Essential Guides
+- **[Cross-Account Role Setup](cross-account-role-setup.md)** - Complete guide for secure cross-account access
+- **[Cognito Centralization Guide](cognito-centralization-guide.md)** - Shared authentication setup and migration
+- **[Parameter Store Configuration](parameter-store-configuration.md)** - Centralized configuration management
+
+### Architecture & Deployment
+- **[Architecture Diagram](architecture_diagram.html)** - Interactive system architecture visualization
+- **[Main Deployment Script](../deploy-coa.sh)** - Primary deployment with resume functionality
+- **[Deployment Resume Guide](../DEPLOYMENT_RESUME_GUIDE.md)** - Handling deployment failures and recovery
+
+## 📞 Support & Troubleshooting
 
 For questions, issues, or contributions:
-- Review component-specific READMEs
-- Check test files for usage examples
-- Refer to the architecture diagram for system understanding
+
+### Documentation Resources
+- **Configuration Issues**: [Parameter Store Configuration](parameter-store-configuration.md)
+- **Authentication Problems**: [Cognito Centralization Guide](cognito-centralization-guide.md)
+- **Cross-Account Access**: [Cross-Account Role Setup](cross-account-role-setup.md)
+- **Deployment Failures**: [Deployment Resume Guide](../DEPLOYMENT_RESUME_GUIDE.md)
+
+### Technical Resources
+- **Architecture Understanding**: [Architecture Diagram](architecture_diagram.html)
+- **Component Documentation**: Component-specific READMEs in respective directories
+- **Test Examples**: [Test Files](../test-files/) for usage examples
+- **Deployment Scripts**: [Deployment Scripts](../deployment-scripts/) for automation details
+
+### Common Issues
+1. **Deployment Failures**: Use `./deploy-coa.sh --show-progress` and `--resume-from-stage N`
+2. **Authentication Issues**: Check [Cognito Centralization Guide](cognito-centralization-guide.md)
+3. **Cross-Account Access**: Verify roles using [Cross-Account Role Setup](cross-account-role-setup.md)
+4. **Configuration Problems**: Review [Parameter Store Configuration](parameter-store-configuration.md)
 
 ---
 
-**🏗️ AWS Well-Architected Cloud Optimization Suite - Comprehensive, Intelligent, Actionable**
+**🛡️ Cloud Optimization Assistant - Secure, Scalable, Intelligent AWS Security Analysis**

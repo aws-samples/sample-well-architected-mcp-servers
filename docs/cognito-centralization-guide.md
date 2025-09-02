@@ -4,17 +4,20 @@ This guide explains how to migrate from individual Cognito user pools per compon
 
 ## Overview
 
-### Current Architecture (Before Refactoring)
-- Each component creates its own Cognito user pool
-- Separate user management for each service
-- Duplicated authentication configuration
-- Users need separate accounts for different components
-
-### New Architecture (After Refactoring)
+### Current Architecture (Implemented)
 - Single shared Cognito user pool for all components
-- Centralized user management
+- Centralized user management via Parameter Store (`/coa/cognito/*`)
 - Multiple client applications for different use cases
 - Single sign-on across all components
+- Automatic configuration discovery for all components
+
+### Legacy Architecture (Before Refactoring)
+- Each component created its own Cognito user pool
+- Separate user management for each service
+- Duplicated authentication configuration
+- Users needed separate accounts for different components
+
+**Note**: The Cloud Optimization Assistant platform has already implemented the centralized approach. This guide serves as documentation for the current implementation and migration guidance for similar systems.
 
 ## Benefits of Centralization
 
@@ -31,9 +34,29 @@ This guide explains how to migrate from individual Cognito user pools per compon
 
 ### Step 1: Deploy Shared Cognito Infrastructure
 
+The current implementation uses the main deployment script which includes Cognito infrastructure:
+
 ```bash
-# Deploy the shared Cognito user pool
-python deployment-scripts/deploy_shared_cognito.py \
+# Deploy the complete platform (includes shared Cognito)
+./deploy-coa.sh --stack-name cloud-optimization-assistant --region us-east-1 --environment prod
+
+# Or deploy just the chatbot stack (which includes Cognito)
+python3 deployment-scripts/deploy_chatbot_stack.py \
+  --stack-name cloud-optimization-assistant \
+  --region us-east-1 \
+  --environment prod
+
+# Generate Cognito SSM parameters after deployment
+python3 deployment-scripts/generate_cognito_ssm_parameters.py \
+  --stack-name cloud-optimization-assistant \
+  --region us-east-1
+```
+
+Alternatively, you can deploy the standalone shared Cognito infrastructure:
+
+```bash
+# Deploy standalone shared Cognito user pool
+python3 deployment-scripts/components/deploy_shared_cognito.py \
   --stack-name cloud-optimization-agentflow-cognito \
   --region us-east-1 \
   --environment prod \
@@ -49,26 +72,38 @@ This creates:
 
 ### Step 2: Update Component Deployments
 
-Replace your existing deployment scripts with the refactored versions:
+The current implementation uses these deployment scripts:
 
-#### For AgentCore Runtime (MCP Server):
+#### For MCP Servers:
 ```bash
-# Old way
-python deployment-scripts/deploy_wa_security_agentcore_runtime.py
+# Deploy WA Security MCP Server (uses shared Cognito automatically)
+python3 deployment-scripts/components/deploy_component_wa_security_mcp.py \
+  --region us-east-1
 
-# New way (using shared Cognito)
-python deployment-scripts/deploy_component_wa_security_mcp.py
+# Deploy AWS API MCP Server (uses shared Cognito automatically)
+python3 deployment-scripts/components/deploy_component_aws_api_mcp_server.py \
+  --region us-east-1
+```
+
+#### For Bedrock Agent:
+```bash
+# Deploy Enhanced Security Agent (uses shared Cognito automatically)
+python3 deployment-scripts/components/deploy_bedrockagent_wa_security_agent.py \
+  --region us-east-1
 ```
 
 #### For Web Applications:
 ```bash
-# Old way
-python deployment-scripts/deploy_chatbot_webapp.py
+# Deploy chatbot webapp (integrated in main stack)
+python3 deployment-scripts/deploy_chatbot_stack.py \
+  --stack-name cloud-optimization-assistant \
+  --region us-east-1
 
-# New way (using shared Cognito)
-python deployment-scripts/deploy_component_chatbot_webapp.py \
-  --shared-cognito-stack cloud-optimization-shared-cognito
+# Or use the complete deployment script
+./deploy-coa.sh
 ```
+
+All component deployment scripts automatically use Parameter Store to discover shared Cognito configuration.
 
 ### Step 3: Update Application Code
 
@@ -100,13 +135,19 @@ user_pool_id = ssm.get_parameter(Name='/coa/cognito/user_pool_id')['Parameter'][
 #### Using the Utility Script
 ```bash
 # Get all Cognito configuration
-python deployment-scripts/get_cognito_config.py
+python3 deployment-scripts/get_cognito_config.py
 
 # Get specific parameter
-python deployment-scripts/get_cognito_config.py --parameter user_pool_id
+python3 deployment-scripts/get_cognito_config.py --parameter user_pool_id
 
 # Export as environment variables
-eval $(python deployment-scripts/get_cognito_config.py --format env)
+eval $(python3 deployment-scripts/get_cognito_config.py --format env)
+
+# Get configuration as JSON
+python3 deployment-scripts/get_cognito_config.py --format json
+
+# Validate existing parameters
+python3 deployment-scripts/generate_cognito_ssm_parameters.py --validate
 ```
 
 #### Frontend Applications
@@ -134,17 +175,17 @@ import boto3
 def migrate_users_from_old_pool(old_user_pool_id, shared_cognito_client):
     """Migrate users from old user pool to shared user pool"""
     cognito = boto3.client('cognito-idp')
-    
+
     # List users from old pool
     response = cognito.list_users(UserPoolId=old_user_pool_id)
-    
+
     for user in response['Users']:
         email = None
         for attr in user['Attributes']:
             if attr['Name'] == 'email':
                 email = attr['Value']
                 break
-        
+
         if email:
             try:
                 # Create user in shared pool
@@ -176,9 +217,15 @@ aws cognito-idp delete-user-pool --user-pool-id us-east-1_OLDPOOL
 
 ## Configuration Reference
 
-### Shared Cognito Stack Outputs
+### Cognito Configuration Sources
 
-The shared Cognito stack provides these outputs:
+The Cognito configuration is available through multiple sources:
+
+#### Parameter Store (Primary - `/coa/cognito/*`)
+All components automatically use Parameter Store for configuration discovery.
+
+#### CloudFormation Stack Outputs
+The main stack (`cloud-optimization-assistant`) or standalone Cognito stack (`cloud-optimization-agentflow-cognito`) provides these outputs:
 
 | Output | Description | Usage |
 |--------|-------------|-------|
@@ -238,17 +285,24 @@ COGNITO_DISCOVERY_URL=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXX
 ### Scenario 3: Multi-Environment
 ```bash
 # Development environment
-python deployment-scripts/deploy_shared_cognito.py \
+./deploy-coa.sh --stack-name cloud-optimization-assistant-dev --environment dev --region us-east-1
+
+# Staging environment  
+./deploy-coa.sh --stack-name cloud-optimization-assistant-staging --environment staging --region us-east-1
+
+# Production environment
+./deploy-coa.sh --stack-name cloud-optimization-assistant-prod --environment prod --region us-east-1
+
+# Or deploy standalone Cognito for each environment
+python3 deployment-scripts/components/deploy_shared_cognito.py \
   --stack-name cloud-optimization-shared-cognito-dev \
   --environment dev
 
-# Staging environment
-python deployment-scripts/deploy_shared_cognito.py \
+python3 deployment-scripts/components/deploy_shared_cognito.py \
   --stack-name cloud-optimization-shared-cognito-staging \
   --environment staging
 
-# Production environment
-python deployment-scripts/deploy_shared_cognito.py \
+python3 deployment-scripts/components/deploy_shared_cognito.py \
   --stack-name cloud-optimization-shared-cognito-prod \
   --environment prod
 ```
@@ -285,7 +339,7 @@ python deployment-scripts/deploy_shared_cognito.py \
 1. **Test Authentication Flow**
    ```python
    from cognito_utils import get_shared_cognito_client
-   
+
    client = get_shared_cognito_client()
    token = client.get_bearer_token('user@example.com', 'password')
    print(f"Token obtained: {token[:50]}...")
@@ -293,15 +347,24 @@ python deployment-scripts/deploy_shared_cognito.py \
 
 2. **Verify Stack Outputs**
    ```bash
+   # Check main stack outputs
    aws cloudformation describe-stacks \
-     --stack-name cloud-optimization-shared-cognito \
+     --stack-name cloud-optimization-assistant \
      --query 'Stacks[0].Outputs'
+   
+   # Or check standalone Cognito stack
+   aws cloudformation describe-stacks \
+     --stack-name cloud-optimization-agentflow-cognito \
+     --query 'Stacks[0].Outputs'
+   
+   # Verify Parameter Store configuration
+   aws ssm get-parameters-by-path --path /coa/cognito/ --recursive
    ```
 
 3. **Test Client Configuration**
    ```python
    from cognito_utils import get_shared_cognito_client
-   
+
    client = get_shared_cognito_client()
    config = client.get_cognito_config_for_frontend()
    print(json.dumps(config, indent=2))
@@ -321,13 +384,51 @@ python deployment-scripts/deploy_shared_cognito.py \
 - **After**: Single user pool × $0.0055 per MAU total
 - **Savings**: Significant reduction in Cognito costs for multiple components
 
+## Current Implementation Status
+
+The Cloud Optimization Assistant platform currently uses the centralized Cognito approach:
+
+### Integrated Deployment
+- The main `deploy-coa.sh` script automatically deploys shared Cognito infrastructure
+- All components use Parameter Store (`/coa/cognito/*`) for configuration discovery
+- No manual Cognito configuration required for individual components
+
+### Automatic Parameter Generation
+- Cognito parameters are automatically created during deployment
+- The `generate_cognito_ssm_parameters.py` script extracts configuration from CloudFormation
+- Parameters are validated and can be regenerated as needed
+
+### Component Integration
+- MCP servers automatically discover Cognito configuration via Parameter Store
+- Bedrock agents use shared authentication for all operations
+- Web interface integrates seamlessly with shared user pool
+
+### Resume Support
+- Deployment failures can be resumed from specific stages
+- Cognito configuration is preserved across resume operations
+- Progress tracking ensures consistent deployment state
+
 ## Next Steps
 
-1. Deploy shared Cognito infrastructure
-2. Test with a single component first
-3. Gradually migrate other components
-4. Update documentation and runbooks
-5. Train team on new authentication flow
-6. Monitor and optimize performance
+1. **For New Deployments**: Use `./deploy-coa.sh` for complete platform deployment
+2. **For Existing Systems**: Migrate gradually using component-specific scripts
+3. **For Development**: Use environment-specific stack names and parameters
+4. **For Troubleshooting**: Use `--show-progress` and `--resume-from-stage` options
+5. **For Validation**: Use the built-in parameter validation tools
 
-For questions or issues, refer to the AWS Cognito documentation or contact the platform team.
+### Quick Start
+```bash
+# Complete deployment with shared Cognito
+./deploy-coa.sh --stack-name my-coa-stack --region us-east-1 --environment prod
+
+# Check deployment progress
+./deploy-coa.sh --show-progress
+
+# Resume if needed
+./deploy-coa.sh --resume-from-stage 3
+
+# Validate Cognito configuration
+python3 deployment-scripts/generate_cognito_ssm_parameters.py --validate
+```
+
+For questions or issues, refer to the AWS Cognito documentation, check the deployment logs, or use the troubleshooting commands provided in this guide.

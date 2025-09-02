@@ -19,6 +19,8 @@ ENVIRONMENT="prod"
 PROFILE=""
 SKIP_PREREQUISITES=false
 CLEANUP_ONLY=false
+RESUME_FROM_STAGE=0
+PROGRESS_FILE=".coa-deployment-progress"
 
 # Function to print colored output
 print_status() {
@@ -50,15 +52,30 @@ OPTIONS:
     -e, --environment ENV       Environment: dev, staging, prod (default: prod)
     -p, --profile PROFILE       AWS CLI profile name
     -s, --skip-prerequisites    Skip prerequisite checks
-    -c, --cleanup               Clean up existing SSM parameters and exit
+    -c, --cleanup               Clean up existing SSM parameters and CloudFormation stacks, then exit
+    --resume-from-stage N       Resume deployment from stage N (1-7)
+    --show-progress             Show current deployment progress and exit
+    --reset-progress            Reset deployment progress tracking
     -h, --help                  Show this help message
+
+DEPLOYMENT STAGES:
+    1. Deploy chatbot stack and update Cognito callbacks
+    2. Generate Cognito SSM parameters
+    3. Deploy MCP servers
+    4. Deploy Bedrock agent
+    5. Generate and upload remote IAM role template
+    6. Show deployment summary
+    7. Final completion
 
 EXAMPLES:
     $0                                          # Deploy with defaults
     $0 -p gameday -e dev                       # Deploy with gameday profile in dev environment
     $0 -n my-coa-stack -r us-west-2           # Deploy with custom stack name and region
     $0 -s                                      # Skip prerequisite checks
-    $0 -c                                      # Clean up existing SSM parameters only
+    $0 -c                                      # Clean up existing SSM parameters and stacks only
+    $0 --resume-from-stage 3                   # Resume from stage 3 (Deploy MCP servers)
+    $0 --show-progress                         # Show current progress
+    $0 --reset-progress                        # Reset progress tracking
 
 EOF
 }
@@ -90,6 +107,74 @@ while [[ $# -gt 0 ]]; do
             CLEANUP_ONLY=true
             shift
             ;;
+        --resume-from-stage)
+            RESUME_FROM_STAGE="$2"
+            if [[ ! "$RESUME_FROM_STAGE" =~ ^[1-7]$ ]]; then
+                print_error "Invalid stage number: $RESUME_FROM_STAGE. Must be between 1-7"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --show-progress)
+            # Load and show progress - function will be defined later
+            if [[ -f "$PROGRESS_FILE" ]]; then
+                source "$PROGRESS_FILE"
+                echo "================================================================================"
+                echo "                        DEPLOYMENT PROGRESS STATUS"
+                echo "================================================================================"
+                echo "Last completed stage: $LAST_COMPLETED_STAGE ($LAST_STAGE_NAME)"
+                echo "Stack Name:          $STACK_NAME"
+                echo "Region:              $REGION"
+                echo "Environment:         $ENVIRONMENT"
+                if [[ -n "$PROFILE" ]]; then
+                    echo "AWS Profile:         $PROFILE"
+                fi
+                echo "Last updated:        $TIMESTAMP"
+                echo
+                echo "DEPLOYMENT STAGES:"
+                
+                for i in {1..7}; do
+                    stage_name=""
+                    case $i in
+                        1) stage_name="Deploy chatbot stack and update Cognito callbacks" ;;
+                        2) stage_name="Generate Cognito SSM parameters" ;;
+                        3) stage_name="Deploy MCP servers" ;;
+                        4) stage_name="Deploy Bedrock agent" ;;
+                        5) stage_name="Generate and upload remote IAM role template" ;;
+                        6) stage_name="Show deployment summary" ;;
+                        7) stage_name="Final completion" ;;
+                    esac
+                    
+                    if [[ $i -le $LAST_COMPLETED_STAGE ]]; then
+                        echo "  ✅ Stage $i: $stage_name"
+                    else
+                        echo "  ⏳ Stage $i: $stage_name"
+                    fi
+                done
+                
+                echo
+                if [[ $LAST_COMPLETED_STAGE -lt 7 ]]; then
+                    next_stage=$((LAST_COMPLETED_STAGE + 1))
+                    echo "To resume from the next stage, run:"
+                    echo "  $0 --resume-from-stage $next_stage"
+                else
+                    echo "✅ Deployment completed successfully!"
+                fi
+                echo "================================================================================"
+            else
+                print_status "No deployment progress found. Start a new deployment with: $0"
+            fi
+            exit 0
+            ;;
+        --reset-progress)
+            if [[ -f "$PROGRESS_FILE" ]]; then
+                rm "$PROGRESS_FILE"
+                print_success "Deployment progress reset"
+            else
+                print_status "No deployment progress found to reset"
+            fi
+            exit 0
+            ;;
         -h|--help)
             show_usage
             exit 0
@@ -105,6 +190,153 @@ done
 # Function to check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+# Function to save deployment progress
+save_progress() {
+    local stage=$1
+    local stage_name="$2"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    cat > "$PROGRESS_FILE" << EOF
+LAST_COMPLETED_STAGE=$stage
+LAST_STAGE_NAME="$stage_name"
+STACK_NAME="$STACK_NAME"
+REGION="$REGION"
+ENVIRONMENT="$ENVIRONMENT"
+PROFILE="$PROFILE"
+TIMESTAMP="$timestamp"
+EOF
+    
+    print_success "Progress saved: Stage $stage completed ($stage_name)"
+}
+
+# Function to load deployment progress
+load_progress() {
+    if [[ -f "$PROGRESS_FILE" ]]; then
+        source "$PROGRESS_FILE"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to show deployment progress
+show_deployment_progress() {
+    if load_progress; then
+        echo "================================================================================"
+        echo "                        DEPLOYMENT PROGRESS STATUS"
+        echo "================================================================================"
+        echo "Last completed stage: $LAST_COMPLETED_STAGE ($LAST_STAGE_NAME)"
+        echo "Stack Name:          $STACK_NAME"
+        echo "Region:              $REGION"
+        echo "Environment:         $ENVIRONMENT"
+        if [[ -n "$PROFILE" ]]; then
+            echo "AWS Profile:         $PROFILE"
+        fi
+        echo "Last updated:        $TIMESTAMP"
+        echo
+        echo "DEPLOYMENT STAGES:"
+        
+        for i in {1..7}; do
+            local stage_name=""
+            case $i in
+                1) stage_name="Deploy chatbot stack and update Cognito callbacks" ;;
+                2) stage_name="Generate Cognito SSM parameters" ;;
+                3) stage_name="Deploy MCP servers" ;;
+                4) stage_name="Deploy Bedrock agent" ;;
+                5) stage_name="Generate and upload remote IAM role template" ;;
+                6) stage_name="Show deployment summary" ;;
+                7) stage_name="Final completion" ;;
+            esac
+            
+            if [[ $i -le $LAST_COMPLETED_STAGE ]]; then
+                echo "  ✅ Stage $i: $stage_name"
+            else
+                echo "  ⏳ Stage $i: $stage_name"
+            fi
+        done
+        
+        echo
+        if [[ $LAST_COMPLETED_STAGE -lt 7 ]]; then
+            local next_stage=$((LAST_COMPLETED_STAGE + 1))
+            echo "To resume from the next stage, run:"
+            echo "  $0 --resume-from-stage $next_stage"
+        else
+            echo "✅ Deployment completed successfully!"
+        fi
+        echo "================================================================================"
+    else
+        print_status "No deployment progress found. Start a new deployment with: $0"
+    fi
+}
+
+# Function to reset deployment progress
+reset_deployment_progress() {
+    if [[ -f "$PROGRESS_FILE" ]]; then
+        rm "$PROGRESS_FILE"
+        print_success "Deployment progress reset"
+    else
+        print_status "No deployment progress found to reset"
+    fi
+}
+
+# Function to validate resume stage
+validate_resume_stage() {
+    local resume_stage=$1
+    
+    if [[ $resume_stage -eq 0 ]]; then
+        return 0  # Normal deployment from start
+    fi
+    
+    if ! load_progress; then
+        print_error "No deployment progress found. Cannot resume from stage $resume_stage"
+        print_status "Start a new deployment with: $0"
+        exit 1
+    fi
+    
+    if [[ $resume_stage -le $LAST_COMPLETED_STAGE ]]; then
+        print_warning "Stage $resume_stage was already completed (last completed: $LAST_COMPLETED_STAGE)"
+        read -p "Do you want to re-run this stage? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Use --resume-from-stage $((LAST_COMPLETED_STAGE + 1)) to resume from the next stage"
+            exit 0
+        fi
+    fi
+    
+    # Load previous deployment configuration if not explicitly provided
+    # Only override defaults with saved values, don't override user-provided values
+    local saved_stack_name saved_region saved_environment saved_profile
+    
+    # Extract saved values from progress file
+    if [[ -f "$PROGRESS_FILE" ]]; then
+        saved_stack_name=$(grep '^STACK_NAME=' "$PROGRESS_FILE" | cut -d'"' -f2)
+        saved_region=$(grep '^REGION=' "$PROGRESS_FILE" | cut -d'"' -f2)
+        saved_environment=$(grep '^ENVIRONMENT=' "$PROGRESS_FILE" | cut -d'"' -f2)
+        saved_profile=$(grep '^PROFILE=' "$PROGRESS_FILE" | cut -d'"' -f2)
+        
+        # Use saved values if current values are defaults and saved values exist
+        if [[ "$STACK_NAME" == "cloud-optimization-assistant" && -n "$saved_stack_name" ]]; then
+            STACK_NAME="$saved_stack_name"
+            print_status "Using stack name from previous deployment: $STACK_NAME"
+        fi
+        
+        if [[ "$REGION" == "us-east-1" && -n "$saved_region" ]]; then
+            REGION="$saved_region"
+            print_status "Using region from previous deployment: $REGION"
+        fi
+        
+        if [[ "$ENVIRONMENT" == "prod" && -n "$saved_environment" ]]; then
+            ENVIRONMENT="$saved_environment"
+            print_status "Using environment from previous deployment: $ENVIRONMENT"
+        fi
+        
+        if [[ -z "$PROFILE" && -n "$saved_profile" ]]; then
+            PROFILE="$saved_profile"
+            print_status "Using AWS profile from previous deployment: $PROFILE"
+        fi
+    fi
 }
 
 # Function to check prerequisites
@@ -218,28 +450,61 @@ check_existing_ssm_parameters() {
     
     local conflicts_found=false
     local conflicting_params=()
+    local conflicting_stacks=()
     
-    # Check for existing Cognito parameters
+    # Define the specific parameters that are known to cause conflicts
+    local critical_params=(
+        "/cloud-optimization-platform/BEDROCK_MODEL_ID"
+        "/cloud-optimization-platform/BEDROCK_REGION"
+        "/cloud-optimization-platform/USE_ENHANCED_AGENT"
+        "/coa/cognito/region"
+        "/coa/cognito/user_pool_id"
+        "/coa/cognito/web_app_client_id"
+        "/coa/cognito/api_client_id"
+        "/coa/cognito/mcp_server_client_id"
+        "/coa/cognito/user_pool_domain"
+        "/coa/cognito/discovery_url"
+        "/coa/cognito/user_pool_arn"
+        "/coa/cognito/identity_pool_id"
+    )
+    
+    # Check each critical parameter individually
+    print_status "Checking for specific conflicting parameters..."
+    for param in "${critical_params[@]}"; do
+        if $aws_cmd ssm get-parameter --name "$param" --region $REGION >/dev/null 2>&1; then
+            print_warning "Found conflicting parameter: $param"
+            conflicting_params+=("$param")
+            conflicts_found=true
+        fi
+    done
+    
+    # Check for existing Cognito parameters (broader check)
     local cognito_params
     if cognito_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/cognito" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$cognito_params" && "$cognito_params" != "" ]]; then
             print_warning "Found existing Cognito SSM parameters:"
             for param in $cognito_params; do
                 echo "  - $param"
-                conflicting_params+=("$param")
+                # Add to conflicting_params if not already there
+                if [[ ! " ${conflicting_params[@]} " =~ " ${param} " ]]; then
+                    conflicting_params+=("$param")
+                fi
             done
             conflicts_found=true
         fi
     fi
     
-    # Check for existing Bedrock parameters
+    # Check for existing Bedrock parameters (broader check)
     local bedrock_params
     if bedrock_params=$($aws_cmd ssm get-parameters-by-path --path "/cloud-optimization-platform" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$bedrock_params" && "$bedrock_params" != "" ]]; then
             print_warning "Found existing Bedrock SSM parameters:"
             for param in $bedrock_params; do
                 echo "  - $param"
-                conflicting_params+=("$param")
+                # Add to conflicting_params if not already there
+                if [[ ! " ${conflicting_params[@]} " =~ " ${param} " ]]; then
+                    conflicting_params+=("$param")
+                fi
             done
             conflicts_found=true
         fi
@@ -247,13 +512,37 @@ check_existing_ssm_parameters() {
     
     # Check for existing CloudFormation stacks that might conflict
     local existing_stacks
-    if existing_stacks=$($aws_cmd cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, '$STACK_NAME')].StackName" --output text --region $REGION 2>/dev/null); then
+    if existing_stacks=$($aws_cmd cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE --query "StackSummaries[?contains(StackName, '$STACK_NAME')].StackName" --output text --region $REGION 2>/dev/null); then
         if [[ -n "$existing_stacks" && "$existing_stacks" != "" ]]; then
             print_warning "Found existing CloudFormation stacks with similar names:"
             for stack in $existing_stacks; do
                 echo "  - $stack"
+                conflicting_stacks+=("$stack")
             done
             conflicts_found=true
+        fi
+    fi
+    
+    # Check for stacks in DELETE_IN_PROGRESS status that might still have resources
+    local deleting_stacks
+    if deleting_stacks=$($aws_cmd cloudformation list-stacks --stack-status-filter DELETE_IN_PROGRESS --query "StackSummaries[?contains(StackName, '$STACK_NAME')].StackName" --output text --region $REGION 2>/dev/null); then
+        if [[ -n "$deleting_stacks" && "$deleting_stacks" != "" ]]; then
+            print_warning "Found CloudFormation stacks currently being deleted:"
+            for stack in $deleting_stacks; do
+                echo "  - $stack (DELETE_IN_PROGRESS)"
+            done
+            print_status "Waiting for stack deletion to complete before proceeding..."
+            
+            # Wait for deletion to complete
+            for stack in $deleting_stacks; do
+                print_status "Waiting for stack deletion: $stack"
+                if ! $aws_cmd cloudformation wait stack-delete-complete --stack-name "$stack" --region $REGION; then
+                    print_error "Stack deletion failed or timed out: $stack"
+                    print_status "You may need to manually clean up resources and try again"
+                    exit 1
+                fi
+                print_success "Stack deleted successfully: $stack"
+            done
         fi
     fi
     
@@ -264,6 +553,7 @@ check_existing_ssm_parameters() {
         echo "  1. Delete the conflicting resources manually"
         echo "  2. Use a different stack name with --stack-name option"
         echo "  3. Use a different region with --region option"
+        echo "  4. Run with --cleanup flag to automatically delete conflicting parameters"
         echo
         
         if [[ ${#conflicting_params[@]} -gt 0 ]]; then
@@ -274,10 +564,19 @@ check_existing_ssm_parameters() {
             echo
         fi
         
+        if [[ ${#conflicting_stacks[@]} -gt 0 ]]; then
+            print_status "To delete conflicting CloudFormation stacks, run:"
+            for stack in "${conflicting_stacks[@]}"; do
+                echo "  $aws_cmd cloudformation delete-stack --stack-name '$stack' --region $REGION"
+            done
+            echo
+        fi
+        
         read -p "Do you want to continue anyway? This may cause deployment failures (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             print_status "Deployment cancelled. Please resolve conflicts and try again."
+            print_status "Tip: Run '$0 --cleanup' to automatically delete conflicting SSM parameters"
             exit 1
         fi
         print_warning "Continuing with deployment despite conflicts..."
@@ -296,54 +595,139 @@ cleanup_existing_parameters() {
     fi
     
     local params_deleted=0
+    local params_failed=0
     
-    # Clean up Cognito parameters
+    # Define the specific parameters that are known to cause conflicts
+    local critical_params=(
+        "/cloud-optimization-platform/BEDROCK_MODEL_ID"
+        "/cloud-optimization-platform/BEDROCK_REGION"
+        "/cloud-optimization-platform/USE_ENHANCED_AGENT"
+        "/coa/cognito/region"
+        "/coa/cognito/user_pool_id"
+        "/coa/cognito/web_app_client_id"
+        "/coa/cognito/api_client_id"
+        "/coa/cognito/mcp_server_client_id"
+        "/coa/cognito/user_pool_domain"
+        "/coa/cognito/discovery_url"
+        "/coa/cognito/user_pool_arn"
+        "/coa/cognito/identity_pool_id"
+    )
+    
+    # First, try to delete specific critical parameters
+    print_status "Deleting critical SSM parameters that cause conflicts..."
+    for param in "${critical_params[@]}"; do
+        if $aws_cmd ssm get-parameter --name "$param" --region $REGION >/dev/null 2>&1; then
+            if $aws_cmd ssm delete-parameter --name "$param" --region $REGION >/dev/null 2>&1; then
+                print_success "Deleted: $param"
+                ((params_deleted++))
+            else
+                print_warning "Failed to delete: $param (may be protected by CloudFormation)"
+                ((params_failed++))
+            fi
+        fi
+    done
+    
+    # Clean up Cognito parameters (broader cleanup)
     local cognito_params
     if cognito_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/cognito" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$cognito_params" && "$cognito_params" != "" ]]; then
-            print_status "Deleting Cognito SSM parameters..."
+            print_status "Deleting remaining Cognito SSM parameters..."
             for param in $cognito_params; do
                 if $aws_cmd ssm delete-parameter --name "$param" --region $REGION >/dev/null 2>&1; then
                     print_success "Deleted: $param"
                     ((params_deleted++))
                 else
-                    print_warning "Failed to delete: $param"
+                    print_warning "Failed to delete: $param (may be protected by CloudFormation)"
+                    ((params_failed++))
                 fi
             done
         fi
     fi
     
-    # Clean up Bedrock parameters
+    # Clean up Bedrock parameters (broader cleanup)
     local bedrock_params
     if bedrock_params=$($aws_cmd ssm get-parameters-by-path --path "/cloud-optimization-platform" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$bedrock_params" && "$bedrock_params" != "" ]]; then
-            print_status "Deleting Bedrock SSM parameters..."
+            print_status "Deleting remaining Bedrock SSM parameters..."
             for param in $bedrock_params; do
                 if $aws_cmd ssm delete-parameter --name "$param" --region $REGION >/dev/null 2>&1; then
                     print_success "Deleted: $param"
                     ((params_deleted++))
                 else
-                    print_warning "Failed to delete: $param"
+                    print_warning "Failed to delete: $param (may be protected by CloudFormation)"
+                    ((params_failed++))
                 fi
             done
         fi
     fi
     
-    if [[ $params_deleted -eq 0 ]]; then
+    # Clean up MCP component parameters
+    local mcp_params
+    if mcp_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/components" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+        if [[ -n "$mcp_params" && "$mcp_params" != "" ]]; then
+            print_status "Deleting MCP component SSM parameters..."
+            for param in $mcp_params; do
+                if $aws_cmd ssm delete-parameter --name "$param" --region $REGION >/dev/null 2>&1; then
+                    print_success "Deleted: $param"
+                    ((params_deleted++))
+                else
+                    print_warning "Failed to delete: $param"
+                    ((params_failed++))
+                fi
+            done
+        fi
+    fi
+    
+    # Clean up agent parameters
+    local agent_params
+    if agent_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/agent" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+        if [[ -n "$agent_params" && "$agent_params" != "" ]]; then
+            print_status "Deleting agent SSM parameters..."
+            for param in $agent_params; do
+                if $aws_cmd ssm delete-parameter --name "$param" --region $REGION >/dev/null 2>&1; then
+                    print_success "Deleted: $param"
+                    ((params_deleted++))
+                else
+                    print_warning "Failed to delete: $param"
+                    ((params_failed++))
+                fi
+            done
+        fi
+    fi
+    
+    # Summary
+    if [[ $params_deleted -eq 0 && $params_failed -eq 0 ]]; then
         print_status "No SSM parameters found to clean up"
     else
         print_success "Cleaned up $params_deleted SSM parameters"
+        if [[ $params_failed -gt 0 ]]; then
+            print_warning "$params_failed parameters could not be deleted (likely protected by CloudFormation)"
+        fi
     fi
     
-    # List any remaining CloudFormation stacks for manual cleanup
+    # Check for CloudFormation stacks that might be protecting parameters
     local existing_stacks
     if existing_stacks=$($aws_cmd cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE --query "StackSummaries[?contains(StackName, '$STACK_NAME')].StackName" --output text --region $REGION 2>/dev/null); then
         if [[ -n "$existing_stacks" && "$existing_stacks" != "" ]]; then
-            print_warning "Found existing CloudFormation stacks that may need manual cleanup:"
+            print_warning "Found existing CloudFormation stacks that may be protecting SSM parameters:"
             for stack in $existing_stacks; do
                 echo "  - $stack"
-                print_status "To delete: $aws_cmd cloudformation delete-stack --stack-name $stack --region $REGION"
+                print_status "To delete stack and its parameters: $aws_cmd cloudformation delete-stack --stack-name $stack --region $REGION"
             done
+            echo
+            print_status "Note: Deleting CloudFormation stacks will also delete their associated SSM parameters"
+        fi
+    fi
+    
+    # Check for stacks in DELETE_IN_PROGRESS status
+    local deleting_stacks
+    if deleting_stacks=$($aws_cmd cloudformation list-stacks --stack-status-filter DELETE_IN_PROGRESS --query "StackSummaries[?contains(StackName, '$STACK_NAME')].StackName" --output text --region $REGION 2>/dev/null); then
+        if [[ -n "$deleting_stacks" && "$deleting_stacks" != "" ]]; then
+            print_status "Found CloudFormation stacks currently being deleted:"
+            for stack in $deleting_stacks; do
+                echo "  - $stack (DELETE_IN_PROGRESS)"
+            done
+            print_status "These stacks are being deleted and their parameters will be cleaned up automatically"
         fi
     fi
 }
@@ -617,58 +1001,28 @@ show_deployment_summary() {
     fi
 }
 
-# Main execution flow
-main() {
-    echo "================================================================================"
-    echo "           Cloud Optimization Assistant (COA) Deployment Script"
-    echo "================================================================================"
-    echo
+# Function to execute deployment stage
+execute_stage() {
+    local stage=$1
+    local stage_name="$2"
+    local stage_function="$3"
     
-    # Handle cleanup-only mode
-    if [[ "$CLEANUP_ONLY" == "true" ]]; then
-        print_status "Running in cleanup mode..."
-        check_aws_credentials
-        cleanup_existing_parameters
-        print_success "Cleanup completed!"
-        exit 0
+    echo
+    print_status "Step $stage/7: $stage_name..."
+    
+    if $stage_function; then
+        save_progress $stage "$stage_name"
+        return 0
+    else
+        print_error "Stage $stage failed: $stage_name"
+        print_status "To resume from this stage after fixing the issue, run:"
+        print_status "  $0 --resume-from-stage $stage"
+        exit 1
     fi
-    
-    # Check prerequisites
-    check_prerequisites
-    
-    # Check AWS credentials and permissions
-    check_aws_credentials
-    
-    # Check for existing SSM parameters and stacks
-    check_existing_ssm_parameters
-    
-    # Check Bedrock model access
-    check_bedrock_model_access
-    
-    echo
-    print_status "Starting deployment with the following configuration:"
-    echo "  Stack Name:   $STACK_NAME"
-    echo "  Region:       $REGION"
-    echo "  Environment:  $ENVIRONMENT"
-    if [[ -n "$PROFILE" ]]; then
-        echo "  AWS Profile:  $PROFILE"
-    fi
-    echo
-    
-    # Confirm deployment
-    if [[ "$ENVIRONMENT" == "prod" ]]; then
-        print_warning "You are deploying to PRODUCTION environment"
-        read -p "Are you sure you want to continue? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_status "Deployment cancelled"
-            exit 0
-        fi
-    fi
-    
-    # Step 1: Deploy chatbot stack
-    echo
-    print_status "Step 1/6: Deploying chatbot stack..."
+}
+
+# Stage 1: Deploy chatbot stack and update configurations
+stage_1_deploy_chatbot() {
     deploy_chatbot_stack
     
     # Update Cognito callback URLs with CloudFront domain
@@ -692,39 +1046,157 @@ main() {
         print_warning "Failed to deploy frontend files - you may need to deploy them manually"
     fi
     
-    # Step 2: Generate Cognito SSM parameters
-    echo
-    print_status "Step 2/6: Generating Cognito SSM parameters..."
+    return 0
+}
+
+# Stage 2: Generate Cognito SSM parameters
+stage_2_generate_cognito_params() {
     generate_cognito_params
-    
-    # Step 3: Deploy MCP servers
-    echo
-    print_status "Step 3/6: Deploying MCP servers..."
+    return $?
+}
+
+# Stage 3: Deploy MCP servers
+stage_3_deploy_mcp_servers() {
     deploy_mcp_servers
-    
-    # Step 4: Deploy Bedrock agent
-    echo
-    print_status "Step 4/7: Deploying Bedrock agent..."
+    return $?
+}
+
+# Stage 4: Deploy Bedrock agent
+stage_4_deploy_bedrock_agent() {
     deploy_bedrock_agent
-    
-    # Step 5: Generate and upload remote role stack template
-    echo
-    print_status "Step 5/7: Generating and uploading remote IAM role template..."
+    return $?
+}
+
+# Stage 5: Generate and upload remote role stack template
+stage_5_generate_remote_role() {
     if generate_and_upload_remote_role_stack; then
         print_success "Remote role template generated and uploaded successfully"
+        return 0
     else
         print_warning "Remote role template generation/upload failed - continuing with deployment"
+        return 0  # Don't fail the deployment for this optional step
+    fi
+}
+
+# Stage 6: Show deployment summary
+stage_6_show_summary() {
+    show_deployment_summary
+    return 0
+}
+
+# Stage 7: Final completion
+stage_7_final_completion() {
+    print_success "Cloud Optimization Assistant deployment completed successfully! 🎉"
+    return 0
+}
+
+# Main execution flow
+main() {
+    echo "================================================================================"
+    echo "           Cloud Optimization Assistant (COA) Deployment Script"
+    echo "================================================================================"
+    echo
+    
+    # Handle cleanup-only mode
+    if [[ "$CLEANUP_ONLY" == "true" ]]; then
+        print_status "Running in cleanup mode..."
+        check_aws_credentials
+        cleanup_existing_parameters
+        print_success "Cleanup completed!"
+        exit 0
     fi
     
-    # Step 6: Show deployment summary
-    echo
-    print_status "Step 6/7: Deployment complete!"
-    show_deployment_summary
+    # Validate resume stage and load previous configuration if resuming
+    validate_resume_stage $RESUME_FROM_STAGE
     
-    # Step 7: Final success message
+    # Show resume information if applicable
+    if [[ $RESUME_FROM_STAGE -gt 0 ]]; then
+        print_status "Resuming deployment from stage $RESUME_FROM_STAGE"
+        if load_progress; then
+            print_status "Previous deployment info:"
+            echo "  Last completed stage: $LAST_COMPLETED_STAGE ($LAST_STAGE_NAME)"
+            echo "  Timestamp: $TIMESTAMP"
+        fi
+        echo
+    fi
+    
+    # Run initial checks only if starting from beginning or stage 1
+    if [[ $RESUME_FROM_STAGE -le 1 ]]; then
+        # Check prerequisites
+        check_prerequisites
+        
+        # Check AWS credentials and permissions
+        check_aws_credentials
+        
+        # Check for existing SSM parameters and stacks
+        check_existing_ssm_parameters
+        
+        # Check Bedrock model access
+        check_bedrock_model_access
+    else
+        # For resume, just check AWS credentials
+        check_aws_credentials
+    fi
+    
     echo
-    print_status "Step 7/7: All deployment steps completed!"
-    print_success "Cloud Optimization Assistant deployment completed successfully! 🎉"
+    print_status "Deployment configuration:"
+    echo "  Stack Name:   $STACK_NAME"
+    echo "  Region:       $REGION"
+    echo "  Environment:  $ENVIRONMENT"
+    if [[ -n "$PROFILE" ]]; then
+        echo "  AWS Profile:  $PROFILE"
+    fi
+    if [[ $RESUME_FROM_STAGE -gt 0 ]]; then
+        echo "  Resume from:  Stage $RESUME_FROM_STAGE"
+    fi
+    echo
+    
+    # Confirm deployment for production (only if starting fresh or from stage 1)
+    if [[ "$ENVIRONMENT" == "prod" && $RESUME_FROM_STAGE -le 1 ]]; then
+        print_warning "You are deploying to PRODUCTION environment"
+        read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Deployment cancelled"
+            exit 0
+        fi
+    fi
+    
+    # Execute deployment stages
+    local start_stage=${RESUME_FROM_STAGE:-1}
+    
+    if [[ $start_stage -le 1 ]]; then
+        execute_stage 1 "Deploy chatbot stack and update Cognito callbacks" "stage_1_deploy_chatbot"
+    fi
+    
+    if [[ $start_stage -le 2 ]]; then
+        execute_stage 2 "Generate Cognito SSM parameters" "stage_2_generate_cognito_params"
+    fi
+    
+    if [[ $start_stage -le 3 ]]; then
+        execute_stage 3 "Deploy MCP servers" "stage_3_deploy_mcp_servers"
+    fi
+    
+    if [[ $start_stage -le 4 ]]; then
+        execute_stage 4 "Deploy Bedrock agent" "stage_4_deploy_bedrock_agent"
+    fi
+    
+    if [[ $start_stage -le 5 ]]; then
+        execute_stage 5 "Generate and upload remote IAM role template" "stage_5_generate_remote_role"
+    fi
+    
+    if [[ $start_stage -le 6 ]]; then
+        execute_stage 6 "Show deployment summary" "stage_6_show_summary"
+    fi
+    
+    if [[ $start_stage -le 7 ]]; then
+        execute_stage 7 "Final completion" "stage_7_final_completion"
+    fi
+    
+    # Clean up progress file on successful completion
+    if [[ -f "$PROGRESS_FILE" ]]; then
+        rm "$PROGRESS_FILE"
+    fi
 }
 
 # Trap to handle script interruption
