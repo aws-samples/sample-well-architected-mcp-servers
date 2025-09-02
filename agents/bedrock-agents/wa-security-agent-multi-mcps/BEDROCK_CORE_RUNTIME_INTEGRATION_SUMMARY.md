@@ -32,12 +32,12 @@ async def initialize(self) -> bool:
     # Get MCP server credentials from AgentCore deployment
     ssm_client = boto3.client('ssm', region_name=self.region)
     secrets_client = boto3.client('secretsmanager', region_name=self.region)
-    
+
     # Get Agent ARN and bearer token
     agent_arn = ssm_client.get_parameter(Name='/aws_api_mcp/runtime/agent_arn')['Parameter']['Value']
     secret_value = secrets_client.get_secret_value(SecretId='aws_api_mcp/cognito/credentials')['SecretString']
     bearer_token = json.loads(secret_value)['bearer_token']
-    
+
     # Build MCP connection details
     encoded_arn = agent_arn.replace(':', '%3A').replace('/', '%2F')
     self.mcp_url = f"https://bedrock-agentcore.{self.region}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
@@ -81,12 +81,12 @@ config = MCPServerConfig(
 ```python
 class APIMCPConnector(BaseMCPConnector):
     """Connector for AWS API MCP Server (AgentCore runtime)"""
-    
+
     def __init__(self, config: MCPServerConfig, region: str, connection_pool: ConnectionPoolManager):
         super().__init__(config, region, connection_pool)
         self.mcp_url = None
         self.mcp_headers = None
-    
+
     async def initialize(self) -> bool:
         """Initialize connection to AWS API MCP Server via Bedrock Core Runtime"""
         # Same pattern as SecurityMCPConnector
@@ -97,7 +97,7 @@ class APIMCPConnector(BaseMCPConnector):
 
 ### 4. **Test Updates**
 
-**Files**: 
+**Files**:
 - `tests/test_aws_api_integration.py`
 - `test_aws_api_integration_standalone.py`
 

@@ -1,46 +1,46 @@
 {
-    "mcpServers": {
-        "aws-knowledge-mcp-server": {
-            "url": "https://knowledge-mcp.global.api.aws",
-            "description": "Public AWS Knowledge MCP Server for documentation search",
-            "timeout": 30,
-            "retry_attempts": 2,
-            "features": [
-                "search_documentation",
-                "get_recommendations", 
-                "read_documentation"
-            ],
-            "usage_notes": [
-                "This is a public endpoint that provides access to AWS documentation",
-                "No authentication required for basic documentation searches",
-                "Supports search across all AWS service documentation",
-                "Returns structured results with titles, URLs, and content excerpts"
-            ]
-        }
+  "integration_example": {
+    "code_example": {
+      "python": [
+        "from agent_config.integrations.aws_knowledge_integration import AWSKnowledgeIntegrationImpl",
+        "",
+        "# Initialize with public endpoint",
+        "knowledge = AWSKnowledgeIntegrationImpl(",
+        "    mcp_server_url='https://knowledge-mcp.global.api.aws'",
+        ")",
+        "",
+        "# Search for security documentation",
+        "docs = await knowledge.search_relevant_documentation('S3 security best practices')",
+        "",
+        "# Get service-specific best practices",
+        "practices = await knowledge.get_best_practices_for_service('s3')",
+        "",
+        "# Find compliance guidance",
+        "compliance = await knowledge.find_compliance_guidance('GDPR')",
+        "",
+        "# Format results for display",
+        "formatted = knowledge.format_documentation_results(docs)"
+      ]
     },
-    "integration_example": {
-        "description": "Example of how to use the AWS Knowledge Integration",
-        "code_example": {
-            "python": [
-                "from agent_config.integrations.aws_knowledge_integration import AWSKnowledgeIntegrationImpl",
-                "",
-                "# Initialize with public endpoint",
-                "knowledge = AWSKnowledgeIntegrationImpl(",
-                "    mcp_server_url='https://knowledge-mcp.global.api.aws'",
-                ")",
-                "",
-                "# Search for security documentation",
-                "docs = await knowledge.search_relevant_documentation('S3 security best practices')",
-                "",
-                "# Get service-specific best practices", 
-                "practices = await knowledge.get_best_practices_for_service('s3')",
-                "",
-                "# Find compliance guidance",
-                "compliance = await knowledge.find_compliance_guidance('GDPR')",
-                "",
-                "# Format results for display",
-                "formatted = knowledge.format_documentation_results(docs)"
-            ]
-        }
+    "description": "Example of how to use the AWS Knowledge Integration"
+  },
+  "mcpServers": {
+    "aws-knowledge-mcp-server": {
+      "description": "Public AWS Knowledge MCP Server for documentation search",
+      "features": [
+        "search_documentation",
+        "get_recommendations",
+        "read_documentation"
+      ],
+      "retry_attempts": 2,
+      "timeout": 30,
+      "url": "https://knowledge-mcp.global.api.aws",
+      "usage_notes": [
+        "This is a public endpoint that provides access to AWS documentation",
+        "No authentication required for basic documentation searches",
+        "Supports search across all AWS service documentation",
+        "Returns structured results with titles, URLs, and content excerpts"
+      ]
     }
+  }
 }

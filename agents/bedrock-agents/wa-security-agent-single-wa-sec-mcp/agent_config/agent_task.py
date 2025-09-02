@@ -18,6 +18,7 @@
 Agent Task for Well-Architected Security Agent
 Integrates with Bedrock AgentCore and MCP Security Server
 """
+
 from .context import SecurityAgentContext
 from .memory_hook_provider import MemoryHook
 from .utils import get_ssm_parameter
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 memory_client = MemoryClient()
 
+
 async def agent_task(user_message: str, session_id: str, actor_id: str):
     """
     Main agent task for processing security-related queries
@@ -41,7 +43,7 @@ async def agent_task(user_message: str, session_id: str, actor_id: str):
 
     if not gateway_access_token:
         raise RuntimeError("Gateway Access token is none")
-    
+
     try:
         if agent is None:
             # Initialize memory hook
@@ -58,11 +60,13 @@ async def agent_task(user_message: str, session_id: str, actor_id: str):
                 memory_hook=memory_hook,
                 model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",  # Claude 3.7 Sonnet
                 region="us-east-1",
-                tools=[]  # MCP tools are handled internally
+                tools=[],  # MCP tools are handled internally
             )
 
             SecurityAgentContext.set_agent_ctx(agent)
-            logger.info("✅ Security Agent initialized with Claude 3.5 Sonnet and MCP integration")
+            logger.info(
+                "✅ Security Agent initialized with Claude 3.5 Sonnet and MCP integration"
+            )
 
         # Stream response with security tool integration
         async for chunk in agent.stream(user_query=user_message):

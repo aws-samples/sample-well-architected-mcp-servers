@@ -17,17 +17,25 @@
 """
 Context management for Security Agent
 """
+
 from contextvars import ContextVar
 from typing import Optional
 from bedrock_agentcore.queue import ResponseQueue
 from .security_agent import SecurityAgent
 
+
 class SecurityAgentContext:
     """Context manager for Security Agent state"""
-    
-    _agent_ctx: ContextVar[Optional[SecurityAgent]] = ContextVar('agent_ctx', default=None)
-    _response_queue_ctx: ContextVar[Optional[ResponseQueue]] = ContextVar('response_queue_ctx', default=None)
-    _gateway_token_ctx: ContextVar[Optional[str]] = ContextVar('gateway_token_ctx', default=None)
+
+    _agent_ctx: ContextVar[Optional[SecurityAgent]] = ContextVar(
+        "agent_ctx", default=None
+    )
+    _response_queue_ctx: ContextVar[Optional[ResponseQueue]] = ContextVar(
+        "response_queue_ctx", default=None
+    )
+    _gateway_token_ctx: ContextVar[Optional[str]] = ContextVar(
+        "gateway_token_ctx", default=None
+    )
 
     @classmethod
     def get_agent_ctx(cls) -> Optional[SecurityAgent]:

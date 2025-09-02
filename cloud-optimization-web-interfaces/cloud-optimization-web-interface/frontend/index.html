@@ -558,6 +558,13 @@
                         <div class="status-dot connected" id="statusDot"></div>
                         <span id="statusText">Connected to AWS Security Assistant</span>
                     </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin: 0 15px;">
+                        <label for="awsAccountId" style="font-size: 14px; font-weight: 600; color: #232F3E;">AWS Account
+                            ID:</label>
+                        <input type="text" id="awsAccountId" placeholder="123456789012"
+                            style="padding: 6px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; width: 150px; background: white;"
+                            maxlength="12" pattern="[0-9]{12}">
+                    </div>
                     <div class="test-buttons">
                         <button class="test-btn" onclick="testSecurityServices()">Security Services</button>
                         <button class="test-btn" onclick="testSecurityFindings()">Security Findings</button>
@@ -574,6 +581,20 @@
                     <input type="text" id="messageInput" class="message-input"
                         placeholder="Ask about your AWS security posture..." onkeypress="handleKeyPress(event)">
                     <button onclick="sendMessage()" id="sendBtn" class="send-btn">Send</button>
+                </div>
+
+                <div
+                    style="margin-top: 15px; padding: 10px; background: rgba(255, 153, 0, 0.1); border-radius: 8px; border: 1px solid rgba(255, 153, 0, 0.2); font-size: 14px; text-align: center;">
+                    <a href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://workshop-data-public.s3.ap-northeast-1.amazonaws.com/remote-role-mcpreadonlyall-20250831_134154.yaml&stackName=remote-mcp-readonly-role&capabilities=CAPABILITY_IAM"
+                        target="_blank" style="color: #FF6600; font-weight: 600;">Click here</a> to deploy an
+                    <em>ReadOnly IAM Role</em> in access AWS account to allow Cloud Optimization Assistant to scan your
+                    environment.
+                </div>
+
+                <div
+                    style="margin-top: 10px; padding: 10px; background: rgba(35, 47, 62, 0.1); border-radius: 8px; border: 1px solid rgba(35, 47, 62, 0.2); font-size: 14px; text-align: center;">
+                    📊 <a href="architecture_diagram.html" target="_blank" style="color: #232F3E; font-weight: 600;">View Architecture Diagram</a> 
+                    to understand the complete Cloud Optimization Assistant stack and component interactions.
                 </div>
 
                 <div id="chatError" class="error"></div>
@@ -950,9 +971,12 @@ Try the quick action buttons above or ask me anything about your AWS security!`;
             const input = document.getElementById('messageInput');
             const sendBtn = document.getElementById('sendBtn');
             const errorDiv = document.getElementById('chatError');
+            const awsAccountIdInput = document.getElementById('awsAccountId');
 
             const message = input.value.trim();
             if (!message) return;
+
+            const awsAccountId = awsAccountIdInput.value.trim();
 
             addMessage('user', message);
             input.value = '';
@@ -961,16 +985,23 @@ Try the quick action buttons above or ask me anything about your AWS security!`;
             errorDiv.textContent = '';
 
             try {
+                const requestBody = {
+                    message: message,
+                    session_id: 'web-session-' + Date.now()
+                };
+
+                // Include AWS Account ID if provided
+                if (awsAccountId) {
+                    requestBody.aws_account_id = awsAccountId;
+                }
+
                 const response = await fetch(window.APP_CONFIG.api.endpoints.chat, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${currentUser.token}`
                     },
-                    body: JSON.stringify({
-                        message: message,
-                        session_id: 'web-session-' + Date.now()
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) {

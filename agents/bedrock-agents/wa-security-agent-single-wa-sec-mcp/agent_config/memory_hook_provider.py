@@ -17,72 +17,81 @@
 """
 Memory Hook Provider for Security Agent
 """
+
 from bedrock_agentcore.memory import MemoryClient, MemoryHook as BaseMemoryHook
-from typing import List, Dict, Any
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class MemoryHook(BaseMemoryHook):
     """
     Memory hook for Security Agent to maintain conversation context
     """
-    
-    def __init__(self, memory_client: MemoryClient, memory_id: str, actor_id: str, session_id: str):
+
+    def __init__(
+        self,
+        memory_client: MemoryClient,
+        memory_id: str,
+        actor_id: str,
+        session_id: str,
+    ):
         super().__init__(memory_client, memory_id, actor_id, session_id)
         self.security_context = {}
-    
-    async def store_security_assessment(self, assessment_type: str, results: Dict[str, Any]):
+
+    async def store_security_assessment(
+        self, assessment_type: str, results: Dict[str, Any]
+    ):
         """Store security assessment results in memory"""
         try:
             memory_entry = {
                 "type": "security_assessment",
                 "assessment_type": assessment_type,
                 "results": results,
-                "timestamp": results.get("timestamp", "unknown")
+                "timestamp": results.get("timestamp", "unknown"),
             }
-            
+
             await self.add_memory(
                 content=f"Security Assessment - {assessment_type}",
-                metadata=memory_entry
+                metadata=memory_entry,
             )
-            
+
             # Also store in local context for quick access
             self.security_context[assessment_type] = results
-            
+
             logger.info(f"Stored {assessment_type} assessment in memory")
-            
+
         except Exception as e:
             logger.error(f"Failed to store security assessment: {e}")
-    
+
     async def get_security_context(self, assessment_type: str = None) -> Dict[str, Any]:
         """Retrieve security context from memory"""
         try:
             if assessment_type and assessment_type in self.security_context:
                 return self.security_context[assessment_type]
-            
+
             # Retrieve from persistent memory
             memories = await self.get_memories(limit=10)
             security_memories = [
-                m for m in memories 
+                m
+                for m in memories
                 if m.get("metadata", {}).get("type") == "security_assessment"
             ]
-            
+
             if assessment_type:
                 security_memories = [
-                    m for m in security_memories 
+                    m
+                    for m in security_memories
                     if m.get("metadata", {}).get("assessment_type") == assessment_type
                 ]
-            
-            return {
-                "memories": security_memories,
-                "count": len(security_memories)
-            }
-            
+
+            return {"memories": security_memories, "count": len(security_memories)}
+
         except Exception as e:
             logger.error(f"Failed to retrieve security context: {e}")
             return {}
-    
+
     async def clear_security_context(self):
         """Clear security context"""
         self.security_context.clear()
