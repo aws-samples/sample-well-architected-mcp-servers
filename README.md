@@ -18,16 +18,20 @@ Includes detailed guides for:
 ```
 /
 ├── 🌐 cloud-optimization-web-interfaces/    # Web interfaces for user interaction
+|
 ├── 🤖 agents/                               # Agents for specialized assessments
 |         ├──bedrock-agents/                 # Bedrock agent set (to be deployed into Bedrock Agent)
-|         |   ├──wa-security-agent-multi-mcps/
-|         |   |                              # Multi-MCP (WA_SEC + AWS_API + AWS_Knowledge)
-|         |   ├──wa-security-agent-single-wa-sec-mcp/
-|         |   |                              # Single-MCP (WA_SEC)
-|         |   └──examples/
+|         |        ├──wa-security-agent-multi-mcps/
+|         |        |                         # Multi-MCP (WA_SEC + AWS_API + AWS_Knowledge)
+|         |        └──wa-security-agent-single-wa-sec-mcp/
+|         |                                  # Single-MCP (WA_SEC)
+|         |
 |         └──strads-agents/                  # Bedrock agent set (to be deployed into Bedrock AgentCore Runtime)
+|
 ├── 🔧 mcp-servers/                          # MCP servers providing assessment tools
+|         |
 |         └──well-architected-security-mcp-server/
+|
 └── 🚀 deployment-scripts/                   # Deployment automation scripts
 ```
 
@@ -85,10 +89,15 @@ Automated deployment scripts for all components.
 
 ```
 deployment-scripts/
-├── deploy_wa_security_direct.py            # Direct MCP server deployment
-├── deploy_wa_security_mcp.py               # AgentCore MCP deployment
-├── deploy_mcp_server.py                    # Generic MCP server deployment
-└── deploy_security_agent.py                # Bedrock agent deployment
+├── components/                              # Component-specific deployment scripts
+│   ├── deploy_component_wa_security_mcp.py  # WA Security MCP Server
+│   ├── deploy_component_chatbot_webapp.py   # Chatbot Web Application
+│   ├── deploy_component_aws_api_mcp_server.py # AWS API MCP Server
+│   └── deploy_shared_cognito.py             # Shared Cognito infrastructure
+├── deploy_chatbot_stack.py                  # Main chatbot stack deployment
+├── generate_cognito_ssm_parameters.py       # Cognito configuration management
+├── generate_remote_role_stack.py            # Cross-account role template generation
+└── update_cognito_callbacks.py              # Cognito callback URL updates
 ```
 
 ## 🎯 **Well-Architected Pillars Coverage**
@@ -137,6 +146,195 @@ python3 components/deploy_component_aws_api_mcp_server.py --region us-east-1
 python3 components/deploy_bedrockagent_wa_security_agent.py --region us-east-1
 ```
 
+## 🎯 **Deploy-COA.sh - Complete Deployment Automation**
+
+The `deploy-coa.sh` script is the primary deployment tool that orchestrates the entire Cloud Optimization Assistant platform deployment in a single command. It provides intelligent progress tracking, error recovery, and resume capabilities.
+
+### **Key Features**
+
+- **🔄 Resume Capability**: Resume deployments from any failed stage without starting over
+- **📊 Progress Tracking**: Visual progress indicators and stage completion tracking
+- **🛡️ Conflict Detection**: Automatic detection and resolution of conflicting resources
+- **🔧 Prerequisite Validation**: Comprehensive checks for required tools and permissions
+- **📋 Multi-Stage Deployment**: Organized into 7 logical deployment stages
+- **🎛️ Flexible Configuration**: Support for custom stack names, regions, and environments
+
+### **Deployment Stages**
+
+The script executes deployment in 7 carefully orchestrated stages:
+
+1. **Deploy Chatbot Stack & Update Cognito Callbacks**
+   - Deploys main CloudFormation stack with web interface
+   - Updates Cognito callback URLs for authentication
+   - Deploys frontend files to S3 and configures CloudFront
+
+2. **Generate Cognito SSM Parameters**
+   - Extracts Cognito configuration from deployed stack
+   - Stores centralized parameters in AWS Systems Manager Parameter Store
+   - Enables component integration with shared authentication
+
+3. **Deploy MCP Servers**
+   - Deploys AWS API MCP Server for AWS CLI operations
+   - Deploys Well-Architected Security MCP Server for security assessments
+   - Configures AgentCore Runtime integration
+
+4. **Deploy Bedrock Agent**
+   - Creates Bedrock agent with Claude 3.5 Sonnet integration
+   - Configures MCP tool integrations for security analysis
+   - Sets up agent memory and context management
+
+5. **Generate & Upload Remote IAM Role Template**
+   - Generates CloudFormation template for cross-account IAM roles
+   - Uploads template to S3 for public access
+   - Updates web interface with one-click deployment links
+
+6. **Show Deployment Summary**
+   - Displays comprehensive deployment information
+   - Provides access URLs and next steps
+   - Shows cross-account role deployment instructions
+
+7. **Final Completion**
+   - Marks deployment as complete
+   - Cleans up progress tracking files
+   - Provides final success confirmation
+
+### **Command Line Options**
+
+```bash
+Usage: ./deploy-coa.sh [OPTIONS]
+
+OPTIONS:
+    -n, --stack-name NAME       CloudFormation stack name (default: cloud-optimization-assistant)
+    -r, --region REGION         AWS region (default: us-east-1)
+    -e, --environment ENV       Environment: dev, staging, prod (default: prod)
+    -p, --profile PROFILE       AWS CLI profile name
+    -s, --skip-prerequisites    Skip prerequisite checks
+    -c, --cleanup               Clean up existing SSM parameters and CloudFormation stacks
+    --resume-from-stage N       Resume deployment from stage N (1-7)
+    --show-progress             Show current deployment progress and exit
+    --reset-progress            Reset deployment progress tracking
+    -h, --help                  Show help message
+```
+
+### **Usage Examples**
+
+```bash
+# Standard deployment with defaults
+./deploy-coa.sh
+
+# Deploy with custom configuration
+./deploy-coa.sh --stack-name my-coa-stack --region us-west-2 --environment dev
+
+# Deploy using specific AWS profile
+./deploy-coa.sh --profile gameday --environment staging
+
+# Check current deployment progress
+./deploy-coa.sh --show-progress
+
+# Resume from stage 3 after failure
+./deploy-coa.sh --resume-from-stage 3
+
+# Clean up conflicting resources before deployment
+./deploy-coa.sh --cleanup
+
+# Reset progress and start fresh
+./deploy-coa.sh --reset-progress
+./deploy-coa.sh
+```
+
+### **Error Recovery & Resume**
+
+The script provides robust error recovery mechanisms:
+
+#### **Automatic Progress Tracking**
+- Each completed stage is recorded with timestamp
+- Configuration (stack name, region, environment) is preserved
+- Progress file (`.coa-deployment-progress`) tracks deployment state
+
+#### **Resume from Failure**
+```bash
+# If deployment fails at stage 4, resume with:
+./deploy-coa.sh --resume-from-stage 4
+
+# Check what stage failed:
+./deploy-coa.sh --show-progress
+```
+
+#### **Conflict Resolution**
+```bash
+# Automatically clean up conflicting resources:
+./deploy-coa.sh --cleanup
+
+# Then start fresh deployment:
+./deploy-coa.sh
+```
+
+### **Prerequisites & Validation**
+
+The script automatically validates:
+
+- **System Requirements**: Bash, AWS CLI v2, Python 3.8+, pip3
+- **AWS Credentials**: Valid credentials and appropriate permissions
+- **Service Access**: Bedrock model access and service availability
+- **Resource Conflicts**: Existing SSM parameters and CloudFormation stacks
+- **Service Quotas**: AWS service limits and regional availability
+
+### **Troubleshooting Common Issues**
+
+#### **Deployment Stuck or Failed**
+```bash
+# Check current status
+./deploy-coa.sh --show-progress
+
+# Reset and restart if needed
+./deploy-coa.sh --reset-progress
+./deploy-coa.sh
+```
+
+#### **AWS Credential Issues**
+```bash
+# Verify credentials
+aws sts get-caller-identity
+
+# Use specific profile
+./deploy-coa.sh --profile your-profile-name
+```
+
+#### **Resource Conflicts**
+```bash
+# Clean up automatically
+./deploy-coa.sh --cleanup
+
+# Or manually check conflicts
+aws ssm get-parameters-by-path --path /coa/ --recursive
+```
+
+#### **Permission Errors**
+The script requires these AWS permissions:
+- CloudFormation: Full access for stack management
+- Cognito: Full access for user pool management
+- S3: Full access for frontend deployment
+- Bedrock: Full access for agent creation
+- AgentCore: Full access for MCP server deployment
+- IAM: Role creation and policy attachment
+- Systems Manager: Parameter Store access
+
+### **Generated Files & Artifacts**
+
+The deployment creates several important files:
+
+- **`.coa-deployment-progress`**: Progress tracking (auto-managed)
+- **`generated-templates/`**: Cross-account role CloudFormation templates
+- **Parameter Store**: Centralized configuration at `/coa/*` paths
+- **S3 Templates**: Public templates for cross-account role deployment
+
+### **Security Considerations**
+
+- **Cross-account roles**: Use read-only permissions for security analysis
+- **Cognito integration**: Centralized authentication across all components
+- **Parameter encryption**: Sensitive configuration stored securely in Parameter Store
+- **IAM least privilege**: Minimal required permissions for each component
+
 ## 🛠️ **Current Capabilities**
 
 ### ✅ **Available Now**
@@ -180,78 +378,41 @@ python3 components/deploy_bedrockagent_wa_security_agent.py --region us-east-1
 
 ## 🛠️ **Troubleshooting**
 
-### Common Deployment Issues
+### Quick Troubleshooting Guide
 
-#### 1. Deployment Progress Issues
+For comprehensive troubleshooting, see the **Deploy-COA.sh** section above. Here are the most common issues:
+
+#### 1. Deployment Issues
 ```bash
-# Check current deployment status
+# Check current status and resume if needed
 ./deploy-coa.sh --show-progress
-
-# If no progress found, start fresh deployment
-./deploy-coa.sh
-
-# If deployment stuck, reset and restart
-./deploy-coa.sh --reset-progress
-./deploy-coa.sh
+./deploy-coa.sh --resume-from-stage N
 ```
 
-#### 2. AWS Credential Problems
+#### 2. Resource Conflicts
 ```bash
-# Verify AWS credentials
+# Clean up conflicting resources automatically
+./deploy-coa.sh --cleanup
+```
+
+#### 3. AWS Credentials
+```bash
+# Verify credentials and use specific profile if needed
 aws sts get-caller-identity
-
-# Check AWS profile (if using profiles)
-aws sts get-caller-identity --profile your-profile-name
-
-# Configure credentials if needed
-aws configure
+./deploy-coa.sh --profile your-profile-name
 ```
 
-#### 3. Parameter Store Configuration Issues
+#### 4. Cross-Account Role Issues
 ```bash
-# Validate Cognito parameters
-python3 deployment-scripts/generate_cognito_ssm_parameters.py --validate
-
-# Check all COA parameters
-aws ssm get-parameters-by-path --path /coa/ --recursive
-
-# Regenerate parameters if needed
-python3 deployment-scripts/generate_cognito_ssm_parameters.py --stack-name your-stack-name
-```
-
-#### 4. Cross-Account Role Deployment
-```bash
-# Test remote role generation
-./test-remote-role-generation.sh
-
-# Manually generate template
+# Test and validate remote role generation
 python3 deployment-scripts/generate_remote_role_stack.py --role-name CrossAccountMCPRole
-
-# Validate CloudFormation template
 aws cloudformation validate-template --template-body file://generated-templates/remote-role-stack/template.yaml
 ```
 
-### Error Recovery
-
-#### Stage-Specific Recovery
-- **Stage 1 Failure**: Check CloudFormation stack status and IAM permissions
-- **Stage 2 Failure**: Verify Parameter Store access permissions
-- **Stage 3 Failure**: Check MCP server deployment logs
-- **Stage 4 Failure**: Verify Bedrock service access and model permissions
-- **Stage 5 Failure**: Check S3 bucket permissions and template generation
-
-#### Log Locations
+### Log Locations
 - **CloudFormation Events**: AWS Console → CloudFormation → Stack → Events
-- **CloudWatch Logs**: AWS Console → CloudWatch → Log Groups
-- **Deployment Logs**: Local terminal output and `.coa-deployment-progress` file
-
-### Best Practices for Troubleshooting
-
-1. **Always check progress first**: `./deploy-coa.sh --show-progress`
-2. **Review AWS permissions**: Ensure adequate IAM permissions for all services
-3. **Check service quotas**: Verify AWS service limits haven't been exceeded
-4. **Monitor CloudFormation**: Watch stack events for detailed error information
-5. **Use resume functionality**: Don't restart from scratch unless necessary
+- **CloudWatch Logs**: AWS Console → CloudWatch → Log Groups  
+- **Deployment Progress**: `.coa-deployment-progress` file
 
 ## 🔒 **Security Notes**
 
@@ -260,78 +421,53 @@ aws cloudformation validate-template --template-body file://generated-templates/
 - **Deployment scripts** create these files automatically during deployment
 - **Never commit** files containing AWS account IDs, ARNs, or authentication details
 
-## 🔄 **Deployment Resume Functionality**
+## 🔄 **Advanced Deployment Features**
 
-The deployment script supports resuming from specific stages when failures occur, saving time and avoiding re-running successful steps.
-
-### Deployment Stages
-
-The deployment is divided into 7 stages:
-
-1. **Deploy chatbot stack and update Cognito callbacks**
-   - Deploys the main CloudFormation stack
-   - Updates Cognito callback URLs
-   - Deploys frontend files to S3
-
-2. **Generate Cognito SSM parameters**
-   - Extracts Cognito configuration from the deployed stack
-   - Stores parameters in AWS Systems Manager Parameter Store
-
-3. **Deploy MCP servers**
-   - Deploys AWS API MCP Server
-   - Deploys WA Security MCP Server
-
-4. **Deploy Bedrock agent**
-   - Deploys the Bedrock agent with MCP integrations
-
-5. **Generate and upload remote IAM role template**
-   - Generates CloudFormation template for cross-account IAM roles
-   - Uploads template to S3 for public access
-
-6. **Show deployment summary**
-   - Displays deployment information and next steps
-
-7. **Final completion**
-   - Marks deployment as complete and cleans up progress tracking
-
-### Resume Commands
+### Cross-Account Role Deployment
+The platform supports deploying read-only IAM roles to target AWS accounts for security analysis:
 
 ```bash
-# Check current deployment status
-./deploy-coa.sh --show-progress
+# Generate cross-account role template
+python3 deployment-scripts/generate_remote_role_stack.py --role-name CrossAccountMCPRole
 
-# Resume from stage 4 (if deployment failed at stage 4)
-./deploy-coa.sh --resume-from-stage 4
-
-# Reset progress tracking to start fresh
-./deploy-coa.sh --reset-progress
+# Deploy using one-click links in web interface
+# Or manually deploy the generated CloudFormation template
 ```
 
-### Progress Tracking Features
+### Multi-Environment Support
+Deploy to different environments with appropriate configurations:
 
-- **Automatic Progress Saving**: Each completed stage is recorded with timestamp
-- **Configuration Preservation**: Stack name, region, environment, and AWS profile are preserved
-- **Error Recovery**: Clear instructions provided when stages fail
-- **Validation**: Prevents resuming from invalid stages
+```bash
+# Development environment
+./deploy-coa.sh --environment dev --stack-name coa-dev
 
-## 📋 **Recent Deployment Updates**
+# Staging environment  
+./deploy-coa.sh --environment staging --stack-name coa-staging
 
-### Enhanced Deployment Process
-- **Resume Functionality**: Resume deployments from specific stages after failures
-- **Progress Tracking**: Visual progress indicators and stage completion tracking
-- **Cross-Account Role Generation**: Automated CloudFormation template generation for target accounts
-- **One-Click Deployment**: Direct CloudFormation deployment links in web interface
+# Production environment
+./deploy-coa.sh --environment prod --stack-name coa-prod
+```
 
-### New Helper Scripts
-- **`test-remote-role-generation.sh`**: Test remote role template generation
-- **`update-template-url.sh`**: Manually update deployment links in frontend
-- **`validate-deploy-coa.sh`**: Validate deployment configuration
+## 📋 **Latest Features & Updates**
 
-### Automated Features
-- **S3 Template Upload**: Automatic upload of cross-account role templates
-- **Frontend Integration**: Automatic update of deployment links in web interface
-- **Parameter Store Integration**: Centralized configuration management
-- **Error Handling**: Comprehensive error checking and recovery options
+### Enhanced Deployment Automation
+- **🚀 One-Command Deployment**: Complete platform deployment with `./deploy-coa.sh`
+- **🔄 Intelligent Resume**: Resume from any failed stage without starting over
+- **📊 Progress Tracking**: Visual progress indicators and comprehensive status reporting
+- **🛡️ Conflict Detection**: Automatic detection and resolution of resource conflicts
+- **🎛️ Multi-Environment**: Support for dev, staging, and production environments
+
+### Cross-Account Integration
+- **📋 Template Generation**: Automated CloudFormation template creation for target accounts
+- **🔗 One-Click Deployment**: Direct deployment links integrated in web interface
+- **🔒 Security-First**: Read-only permissions with least privilege access
+- **📤 S3 Integration**: Automatic template upload and public access configuration
+
+### Centralized Configuration
+- **🗄️ Parameter Store**: Centralized configuration management at `/coa/*` paths
+- **🔐 Cognito Integration**: Shared authentication across all components
+- **🔧 Component Discovery**: Automatic service discovery and integration
+- **📝 Configuration Validation**: Comprehensive validation and error checking
 
 ## 📈 **Roadmap**
 
