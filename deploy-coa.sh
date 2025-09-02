@@ -764,6 +764,131 @@ check_bedrock_model_access() {
     fi
 }
 
+# Function to create demo user with correct credentials
+create_demo_user() {
+    print_status "Creating demo user with credentials matching the login page..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    # Get User Pool ID from stack outputs
+    local user_pool_id
+    if user_pool_id=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text 2>/dev/null); then
+        if [[ -n "$user_pool_id" && "$user_pool_id" != "None" ]]; then
+            print_status "Creating demo user in User Pool: $user_pool_id"
+            
+            # Demo credentials that match the login page
+            local demo_email="testuser@example.com"
+            local demo_password="TestPass123!"
+            
+            # Check if user already exists
+            if $aws_cmd cognito-idp admin-get-user --user-pool-id "$user_pool_id" --username "$demo_email" --region $REGION >/dev/null 2>&1; then
+                print_status "Demo user already exists, updating password..."
+                # Update existing user password
+                if $aws_cmd cognito-idp admin-set-user-password --user-pool-id "$user_pool_id" --username "$demo_email" --password "$demo_password" --permanent --region $REGION >/dev/null 2>&1; then
+                    print_success "Demo user password updated successfully"
+                else
+                    print_warning "Failed to update demo user password"
+                fi
+            else
+                print_status "Creating new demo user..."
+                # Create new user
+                if $aws_cmd cognito-idp admin-create-user --user-pool-id "$user_pool_id" --username "$demo_email" --user-attributes Name=email,Value="$demo_email" Name=email_verified,Value=true --temporary-password "TempPass123!" --message-action SUPPRESS --region $REGION >/dev/null 2>&1; then
+                    # Set permanent password
+                    if $aws_cmd cognito-idp admin-set-user-password --user-pool-id "$user_pool_id" --username "$demo_email" --password "$demo_password" --permanent --region $REGION >/dev/null 2>&1; then
+                        print_success "Demo user created successfully"
+                        echo "  📧 Email: $demo_email"
+                        echo "  🔑 Password: $demo_password"
+                    else
+                        print_warning "Demo user created but failed to set permanent password"
+                    fi
+                else
+                    print_warning "Failed to create demo user"
+                fi
+            fi
+        else
+            print_warning "Could not retrieve User Pool ID from stack outputs"
+        fi
+    else
+        print_warning "Failed to get User Pool information from CloudFormation stack"
+    fi
+}
+
+# Function to invalidate CloudFront cache
+invalidate_cloudfront_cache() {
+    print_status "Invalidating CloudFront cache..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    # Get CloudFront distribution ID
+    local cloudfront_domain distribution_id
+    if cloudfront_domain=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDomainName`].OutputValue' --output text 2>/dev/null); then
+        if distribution_id=$($aws_cmd cloudfront list-distributions --query "DistributionList.Items[?contains(DomainName, '$cloudfront_domain')].Id" --output text 2>/dev/null); then
+            if [[ -n "$distribution_id" && "$distribution_id" != "" ]]; then
+                print_status "Invalidating cache for distribution: $distribution_id"
+                if $aws_cmd cloudfront create-invalidation --distribution-id "$distribution_id" --paths "/config.js" "/index.html" "/*" >/dev/null 2>&1; then
+                    print_success "CloudFront cache invalidation created successfully"
+                else
+                    print_warning "Failed to create CloudFront cache invalidation"
+                fi
+            else
+                print_warning "Could not find CloudFront distribution ID"
+            fi
+        else
+            print_warning "Failed to list CloudFront distributions"
+        fi
+    else
+        print_warning "Could not retrieve CloudFront domain from stack outputs"
+    fi
+}
+
+# Function to validate frontend configuration
+validate_frontend_config() {
+    print_status "Validating frontend configuration..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    # Get stack outputs
+    local user_pool_id web_app_client_id frontend_bucket cloudfront_domain
+    if user_pool_id=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text 2>/dev/null) &&
+       web_app_client_id=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].Outputs[?OutputKey==`WebAppClientId`].OutputValue' --output text 2>/dev/null) &&
+       frontend_bucket=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucketName`].OutputValue' --output text 2>/dev/null) &&
+       cloudfront_domain=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDomainName`].OutputValue' --output text 2>/dev/null); then
+        
+        print_status "Expected configuration:"
+        echo "  User Pool ID: $user_pool_id"
+        echo "  Client ID: $web_app_client_id"
+        echo "  CloudFront Domain: $cloudfront_domain"
+        
+        # Check current config.js in S3
+        print_status "Checking current frontend configuration..."
+        local current_config
+        if current_config=$($aws_cmd s3 cp s3://$frontend_bucket/config.js - --region $REGION 2>/dev/null); then
+            if echo "$current_config" | grep -q "$user_pool_id" && echo "$current_config" | grep -q "$web_app_client_id"; then
+                print_success "Frontend configuration is correct"
+                return 0
+            else
+                print_warning "Frontend configuration is incorrect, needs update"
+                return 1
+            fi
+        else
+            print_warning "Could not retrieve current frontend configuration"
+            return 1
+        fi
+    else
+        print_error "Failed to get required stack outputs for validation"
+        return 1
+    fi
+}
+
 # Function to deploy chatbot stack
 deploy_chatbot_stack() {
     print_status "Deploying chatbot stack..."
@@ -845,7 +970,7 @@ deploy_bedrock_agent() {
 generate_and_upload_remote_role_stack() {
     print_status "Generating remote IAM role CloudFormation template..."
     
-    local python_args="--region $REGION --environment $ENVIRONMENT"
+    local python_args="--environment $ENVIRONMENT"
     if [[ -n "$PROFILE" ]]; then
         python_args="$python_args --profile $PROFILE"
     fi
@@ -994,6 +1119,15 @@ show_deployment_summary() {
         echo "6. 🔐 Deploy the remote IAM role in target AWS accounts using the one-click link"
         echo "   in the web interface for cross-account security scanning"
         echo
+        echo "================================================================================"
+        echo "                              DEMO CREDENTIALS"
+        echo "================================================================================"
+        echo "📧 Email: testuser@example.com"
+        echo "🔑 Password: TestPass123!"
+        echo
+        echo "These credentials match what is displayed on the login page."
+        echo "================================================================================"
+        echo
         echo "For troubleshooting, check CloudWatch logs and CloudFormation events."
         echo "================================================================================"
     else
@@ -1042,9 +1176,36 @@ stage_1_deploy_chatbot() {
     print_status "Deploying frontend files to S3..."
     if python3 deployment-scripts/deploy_frontend.py $python_args; then
         print_success "Frontend files deployed successfully"
+        
+        # Validate frontend configuration
+        if ! validate_frontend_config; then
+            print_warning "Frontend configuration validation failed, attempting to redeploy..."
+            # Wait a moment and try again
+            sleep 5
+            if python3 deployment-scripts/deploy_frontend.py $python_args; then
+                print_success "Frontend redeployed successfully"
+                # Invalidate CloudFront cache to ensure new config is served
+                invalidate_cloudfront_cache
+                # Wait for cache invalidation to start propagating
+                sleep 10
+                if validate_frontend_config; then
+                    print_success "Frontend configuration validated successfully"
+                else
+                    print_warning "Frontend configuration still incorrect after redeploy - cache may need time to propagate"
+                fi
+            else
+                print_warning "Frontend redeploy failed"
+            fi
+        else
+            # Even if validation passes, invalidate cache to ensure fresh content
+            invalidate_cloudfront_cache
+        fi
     else
         print_warning "Failed to deploy frontend files - you may need to deploy them manually"
     fi
+    
+    # Create demo user with correct credentials
+    create_demo_user
     
     return 0
 }
