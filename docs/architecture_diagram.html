@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Well-Architected Cloud Optimization Suite - Enhanced Architecture Diagram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 16px;
+        }
+
+        .architecture {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .layer {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            border-left: 5px solid;
+            position: relative;
+        }
+
+        .layer.frontend {
+            border-left-color: #3498db;
+            grid-column: 1 / -1;
+        }
+
+        .layer.backend {
+            border-left-color: #e74c3c;
+        }
+
+        .layer.agents {
+            border-left-color: #f39c12;
+        }
+
+        .layer.mcp {
+            border-left-color: #27ae60;
+            grid-column: 1 / -1;
+        }
+
+        .layer.aws {
+            border-left-color: #9b59b6;
+            grid-column: 1 / -1;
+        }
+
+        .layer-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .layer-icon {
+            font-size: 24px;
+        }
+
+        .components {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+        }
+
+        .component {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .component:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        .component.active {
+            border-color: #27ae60;
+        }
+
+        .component.planned {
+            border-color: #f39c12;
+            opacity: 0.7;
+        }
+
+        .component-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .component-title {
+            font-weight: bold;
+            font-size: 16px;
+            color: #2c3e50;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-planned {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .component-description {
+            color: #7f8c8d;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .component-features {
+            list-style: none;
+            font-size: 12px;
+        }
+
+        .component-features li {
+            margin-bottom: 4px;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .component-features li::before {
+            content: "•";
+            color: #3498db;
+            position: absolute;
+            left: 0;
+        }
+
+        .connections {
+            margin-top: 40px;
+            background: #ecf0f1;
+            border-radius: 15px;
+            padding: 25px;
+        }
+
+        .connections h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .flow-diagram {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .flow-item {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            min-width: 120px;
+        }
+
+        .flow-arrow {
+            font-size: 24px;
+            color: #3498db;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 768px) {
+            .architecture {
+                grid-template-columns: 1fr;
+            }
+
+            .components {
+                grid-template-columns: 1fr;
+            }
+
+            .flow-diagram {
+                flex-direction: column;
+            }
+
+            .flow-arrow {
+                transform: rotate(90deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏗️ AWS Well-Architected Cloud Optimization Suite</h1>
+            <p>Enhanced Architecture Overview - 19 Components Across 5 Layers</p>
+        </div>
+
+        <div class="architecture">
+            <!-- Frontend Layer -->
+            <div class="layer frontend">
+                <div class="layer-title">
+                    <span class="layer-icon">🌐</span>
+                    Frontend Layer
+                </div>
+                <div class="components">
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">Web Interface</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Interactive web application for cloud optimization assessments
+                        </div>
+                        <ul class="component-features">
+                            <li>Real-time chat with Claude 3.7 Sonnet</li>
+                            <li>WebSocket communication</li>
+                            <li>Multi-pillar assessments</li>
+                            <li>Interactive dashboards</li>
+                            <li>Collapsible menu system</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Backend Layer -->
+            <div class="layer backend">
+                <div class="layer-title">
+                    <span class="layer-icon">⚙️</span>
+                    Backend Services
+                </div>
+                <div class="components">
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">FastAPI Backend</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Python FastAPI server handling requests and orchestration
+                        </div>
+                        <ul class="component-features">
+                            <li>WebSocket endpoints</li>
+                            <li>Health monitoring</li>
+                            <li>Authentication service</li>
+                            <li>AWS configuration</li>
+                        </ul>
+                    </div>
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">Bedrock Chat Service</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Service for communicating with Amazon Bedrock
+                        </div>
+                        <ul class="component-features">
+                            <li>Bearer token authentication</li>
+                            <li>Claude 3.7 Sonnet integration</li>
+                            <li>Inference profile support</li>
+                            <li>Cross-account role assumption</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agents Layer -->
+            <div class="layer agents">
+                <div class="layer-title">
+                    <span class="layer-icon">🤖</span>
+                    Agents
+                </div>
+                <div class="components">
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">Security Assessment Agent</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Specialized agent for comprehensive security assessments
+                        </div>
+                        <ul class="component-features">
+                            <li>Security posture evaluation</li>
+                            <li>Compliance checking</li>
+                            <li>Vulnerability assessment</li>
+                            <li>Best practices validation</li>
+                        </ul>
+                    </div>
+                    <div class="component planned">
+                        <div class="component-header">
+                            <div class="component-title">Resilience Check Agent</div>
+                            <div class="status-badge status-planned">Planned</div>
+                        </div>
+                        <div class="component-description">
+                            Agent for reliability and fault tolerance assessments
+                        </div>
+                        <ul class="component-features">
+                            <li>Disaster recovery analysis</li>
+                            <li>Multi-AZ deployment checks</li>
+                            <li>Backup strategy review</li>
+                            <li>Monitoring setup validation</li>
+                        </ul>
+                    </div>
+                    <div class="component planned">
+                        <div class="component-header">
+                            <div class="component-title">Cost Optimization Agent</div>
+                            <div class="status-badge status-planned">Planned</div>
+                        </div>
+                        <div class="component-description">
+                            Agent for cost analysis and optimization recommendations
+                        </div>
+                        <ul class="component-features">
+                            <li>Right-sizing analysis</li>
+                            <li>Reserved Instance optimization</li>
+                            <li>Cost monitoring setup</li>
+                            <li>Unused resource detection</li>
+                        </ul>
+                    </div>
+                    <div class="component planned">
+                        <div class="component-header">
+                            <div class="component-title">EKS Operation Agent</div>
+                            <div class="status-badge status-planned">Planned</div>
+                        </div>
+                        <div class="component-description">
+                            Agent for Kubernetes cluster operations and optimization
+                        </div>
+                        <ul class="component-features">
+                            <li>EKS cluster health checks</li>
+                            <li>Pod optimization analysis</li>
+                            <li>Resource utilization review</li>
+                            <li>Security policy validation</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MCP Servers Layer -->
+            <div class="layer mcp">
+                <div class="layer-title">
+                    <span class="layer-icon">🔧</span>
+                    MCP Servers (Model Context Protocol)
+                </div>
+                <div class="components">
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">Security MCP Server</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            6 specialized security assessment tools
+                        </div>
+                        <ul class="component-features">
+                            <li>Security services status</li>
+                            <li>Storage encryption analysis</li>
+                            <li>Network security review</li>
+                            <li>Access analyzer integration</li>
+                            <li>Inspector vulnerability scan</li>
+                            <li>Resource enumeration</li>
+                        </ul>
+                    </div>
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">AWS API MCP Server</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            AWS MCP package awslabs.aws-api-mcp-server
+                        </div>
+                        <ul class="component-features">
+                            <li>Local installation in BedRock AgentCore Runtime</li>
+                            <li>Support AWS API</li>
+                            <li>Direct AWS service integration</li>
+                            <li>Real-time AWS resource queries</li>
+                        </ul>
+                    </div>
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">AWS Knowledge Server</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Remote public AWS Knowledge MCP Server
+                        </div>
+                        <ul class="component-features">
+                            <li>The latest AWS docs</li>
+                            <li>API references</li>
+                            <li>What's New posts</li>
+                            <li>Getting Started information</li>
+                            <li>Builder Center</li>
+                            <li>Blog posts</li>
+                            <li>Architectural references</li>
+                            <li>Well-Architected guidance</li>
+                        </ul>
+                    </div>
+                    <div class="component planned">
+                        <div class="component-header">
+                            <div class="component-title">Reliability MCP Server</div>
+                            <div class="status-badge status-planned">Planned</div>
+                        </div>
+                        <div class="component-description">
+                            Tools for reliability and resilience assessment
+                        </div>
+                        <ul class="component-features">
+                            <li>Fault tolerance analysis</li>
+                            <li>Backup validation</li>
+                            <li>Monitoring checks</li>
+                            <li>Auto-scaling review</li>
+                        </ul>
+                    </div>
+                    <div class="component planned">
+                        <div class="component-header">
+                            <div class="component-title">Lens Best Practices Server</div>
+                            <div class="status-badge status-planned">Planned</div>
+                        </div>
+                        <div class="component-description">
+                            Specialized lens-specific assessment tools
+                        </div>
+                        <ul class="component-features">
+                            <li>Serverless lens tools</li>
+                            <li>SaaS lens assessments</li>
+                            <li>IoT lens validation</li>
+                            <li>ML lens optimization</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AWS Services Layer -->
+            <div class="layer aws">
+                <div class="layer-title">
+                    <span class="layer-icon">☁️</span>
+                    AWS Services Integration
+                </div>
+                <div class="components">
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">Amazon Bedrock</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            AI foundation models for intelligent assessments
+                        </div>
+                        <ul class="component-features">
+                            <li>Claude 3.7 Sonnet model</li>
+                            <li>Inference profiles</li>
+                            <li>Bearer token authentication</li>
+                        </ul>
+                    </div>
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">AWS Security Services</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Native AWS security and compliance services
+                        </div>
+                        <ul class="component-features">
+                            <li>GuardDuty threat detection</li>
+                            <li>Security Hub findings</li>
+                            <li>Inspector vulnerability scans</li>
+                            <li>Access Analyzer</li>
+                        </ul>
+                    </div>
+                    <div class="component active">
+                        <div class="component-header">
+                            <div class="component-title">Cross-Account IAM</div>
+                            <div class="status-badge status-active">Active</div>
+                        </div>
+                        <div class="component-description">
+                            Secure cross-account access for assessments
+                        </div>
+                        <ul class="component-features">
+                            <li>ReadOnly role assumption</li>
+                            <li>External ID security</li>
+                            <li>Multi-account support</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Flow -->
+        <div class="connections">
+            <h3>🔄 Data Flow & Component Interactions</h3>
+            <div class="flow-diagram">
+                <div class="flow-item">
+                    <strong>User</strong><br>
+                    <small>Web Interface</small>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-item">
+                    <strong>FastAPI</strong><br>
+                    <small>Backend</small>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-item">
+                    <strong>Bedrock</strong><br>
+                    <small>Claude 3.7</small>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-item">
+                    <strong>MCP Tools</strong><br>
+                    <small>Assessment</small>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-item">
+                    <strong>AWS APIs</strong><br>
+                    <small>Data Collection</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">19</div>
+                <div class="stat-label">Total Components</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">11</div>
+                <div class="stat-label">Active Components</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">8</div>
+                <div class="stat-label">Planned Components</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">8</div>
+                <div class="stat-label">MCP Tools Available</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">5</div>
+                <div class="stat-label">Architecture Layers</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">3</div>
+                <div class="stat-label">Well-Architected Pillars</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
