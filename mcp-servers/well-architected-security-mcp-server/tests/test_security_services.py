@@ -696,9 +696,7 @@ async def test_get_guardduty_findings_success(mock_ctx, mock_boto3_session, mock
     mock_boto3_session.client.return_value = mock_guardduty_client
 
     # Mock check_guard_duty to return enabled
-    with mock.patch(
-        "src.util.security_services.check_guard_duty"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_guard_duty") as mock_check:
         mock_check.return_value = {
             "enabled": True,
             "detector_details": {"id": "12345678901234567890123456789012"},
@@ -718,9 +716,7 @@ async def test_get_guardduty_findings_success(mock_ctx, mock_boto3_session, mock
 async def test_get_guardduty_findings_not_enabled(mock_ctx, mock_boto3_session):
     """Test the get_guardduty_findings function when GuardDuty is not enabled."""
     # Mock check_guard_duty to return not enabled
-    with mock.patch(
-        "src.util.security_services.check_guard_duty"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_guard_duty") as mock_check:
         mock_check.return_value = {"enabled": False}
 
         result = await get_guardduty_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -738,9 +734,7 @@ async def test_get_guardduty_findings_error(mock_ctx, mock_boto3_session, mock_g
     mock_boto3_session.client.return_value = mock_guardduty_client
 
     # Mock check_guard_duty to return enabled
-    with mock.patch(
-        "src.util.security_services.check_guard_duty"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_guard_duty") as mock_check:
         mock_check.return_value = {
             "enabled": True,
             "detector_details": {"id": "12345678901234567890123456789012"},
@@ -767,9 +761,7 @@ async def test_get_securityhub_findings_success(
     mock_boto3_session.client.return_value = mock_securityhub_client
 
     # Mock check_security_hub to return enabled
-    with mock.patch(
-        "src.util.security_services.check_security_hub"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_security_hub") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         result = await get_securityhub_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -786,9 +778,7 @@ async def test_get_securityhub_findings_success(
 async def test_get_securityhub_findings_not_enabled(mock_ctx, mock_boto3_session):
     """Test the get_securityhub_findings function when Security Hub is not enabled."""
     # Mock check_security_hub to return not enabled
-    with mock.patch(
-        "src.util.security_services.check_security_hub"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_security_hub") as mock_check:
         mock_check.return_value = {"enabled": False}
 
         result = await get_securityhub_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -806,9 +796,7 @@ async def test_get_inspector_findings_success(mock_ctx, mock_boto3_session, mock
     mock_boto3_session.client.return_value = mock_inspector_client
 
     # Mock check_inspector to return enabled
-    with mock.patch(
-        "src.util.security_services.check_inspector"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_inspector") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         result = await get_inspector_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -825,9 +813,7 @@ async def test_get_inspector_findings_success(mock_ctx, mock_boto3_session, mock
 async def test_get_inspector_findings_not_enabled(mock_ctx, mock_boto3_session):
     """Test the get_inspector_findings function when Inspector is not enabled."""
     # Mock check_inspector to return not enabled
-    with mock.patch(
-        "src.util.security_services.check_inspector"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_inspector") as mock_check:
         mock_check.return_value = {"enabled": False}
 
         result = await get_inspector_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -847,9 +833,7 @@ async def test_get_access_analyzer_findings_success(
     mock_boto3_session.client.return_value = mock_accessanalyzer_client
 
     # Mock check_access_analyzer to return enabled
-    with mock.patch(
-        "src.util.security_services.check_access_analyzer"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_access_analyzer") as mock_check:
         mock_check.return_value = {
             "enabled": True,
             "analyzers": [
@@ -874,9 +858,7 @@ async def test_get_access_analyzer_findings_success(
 async def test_get_access_analyzer_findings_not_enabled(mock_ctx, mock_boto3_session):
     """Test the get_access_analyzer_findings function when Access Analyzer is not enabled."""
     # Mock check_access_analyzer to return not enabled
-    with mock.patch(
-        "src.util.security_services.check_access_analyzer"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_access_analyzer") as mock_check:
         mock_check.return_value = {"enabled": False}
 
         result = await get_access_analyzer_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -896,9 +878,7 @@ async def test_get_trusted_advisor_findings_success(
     mock_boto3_session.client.return_value = mock_support_client
 
     # Mock check_trusted_advisor to return enabled
-    with mock.patch(
-        "src.util.security_services.check_trusted_advisor"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_trusted_advisor") as mock_check:
         mock_check.return_value = {"enabled": True, "support_tier": "Business/Enterprise"}
 
         result = await get_trusted_advisor_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -915,9 +895,7 @@ async def test_get_trusted_advisor_findings_success(
 async def test_get_trusted_advisor_findings_not_enabled(mock_ctx, mock_boto3_session):
     """Test the get_trusted_advisor_findings function when Trusted Advisor is not accessible."""
     # Mock check_trusted_advisor to return not enabled
-    with mock.patch(
-        "src.util.security_services.check_trusted_advisor"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_trusted_advisor") as mock_check:
         mock_check.return_value = {"enabled": False}
 
         result = await get_trusted_advisor_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -934,9 +912,7 @@ async def test_get_macie_findings_success(mock_ctx, mock_boto3_session, mock_mac
     mock_boto3_session.client.return_value = mock_macie_client
 
     # Mock check_macie to return enabled
-    with mock.patch(
-        "src.util.security_services.check_macie"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_macie") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         result = await get_macie_findings("us-east-1", mock_boto3_session, mock_ctx)
@@ -953,9 +929,7 @@ async def test_get_macie_findings_success(mock_ctx, mock_boto3_session, mock_mac
 async def test_get_macie_findings_not_enabled(mock_ctx, mock_boto3_session):
     """Test the get_macie_findings function when Macie is not enabled."""
     # Mock check_macie to return not enabled
-    with mock.patch(
-        "src.util.security_services.check_macie"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_macie") as mock_check:
         mock_check.return_value = {"enabled": False}
 
         result = await get_macie_findings("us-east-1", mock_boto3_session, mock_ctx)

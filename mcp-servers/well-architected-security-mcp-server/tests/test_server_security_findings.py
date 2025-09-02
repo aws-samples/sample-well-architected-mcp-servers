@@ -35,16 +35,12 @@ async def test_get_security_findings_with_service_enabled_in_context(mock_ctx, m
     }
 
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_guardduty_findings
-        with mock.patch(
-            "src.server.get_guardduty_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_guardduty_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "guardduty",
@@ -92,16 +88,12 @@ async def test_get_security_findings_with_service_disabled_in_context(
     }
 
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_guardduty_findings (should not be called)
-        with mock.patch(
-            "src.server.get_guardduty_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_guardduty_findings") as mock_get_findings:
             # Call the function
             result = await get_security_findings(
                 mock_ctx,
@@ -134,16 +126,12 @@ async def test_get_security_findings_with_service_not_in_context(mock_ctx, mock_
     }
 
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_guardduty_findings
-        with mock.patch(
-            "src.server.get_guardduty_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_guardduty_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "guardduty",
@@ -179,16 +167,12 @@ async def test_get_security_findings_with_no_context_storage(mock_ctx, mock_boto
     context_storage.clear()
 
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_guardduty_findings
-        with mock.patch(
-            "src.server.get_guardduty_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_guardduty_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "guardduty",
@@ -228,16 +212,12 @@ async def test_get_security_findings_with_check_enabled_false(mock_ctx, mock_bot
     }
 
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_guardduty_findings
-        with mock.patch(
-            "src.server.get_guardduty_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_guardduty_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "guardduty",
@@ -270,16 +250,12 @@ async def test_get_security_findings_with_check_enabled_false(mock_ctx, mock_bot
 async def test_get_security_findings_with_securityhub(mock_ctx, mock_boto3_session):
     """Test get_security_findings with securityhub service."""
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_securityhub_findings
-        with mock.patch(
-            "src.server.get_securityhub_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_securityhub_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "securityhub",
@@ -312,16 +288,12 @@ async def test_get_security_findings_with_securityhub(mock_ctx, mock_boto3_sessi
 async def test_get_security_findings_with_inspector(mock_ctx, mock_boto3_session):
     """Test get_security_findings with inspector service."""
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_inspector_findings
-        with mock.patch(
-            "src.server.get_inspector_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_inspector_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "inspector",
@@ -354,16 +326,12 @@ async def test_get_security_findings_with_inspector(mock_ctx, mock_boto3_session
 async def test_get_security_findings_with_accessanalyzer(mock_ctx, mock_boto3_session):
     """Test get_security_findings with accessanalyzer service."""
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_access_analyzer_findings
-        with mock.patch(
-            "src.server.get_access_analyzer_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_access_analyzer_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "accessanalyzer",
@@ -396,16 +364,12 @@ async def test_get_security_findings_with_accessanalyzer(mock_ctx, mock_boto3_se
 async def test_get_security_findings_with_trustedadvisor(mock_ctx, mock_boto3_session):
     """Test get_security_findings with trustedadvisor service."""
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_trusted_advisor_findings
-        with mock.patch(
-            "src.server.get_trusted_advisor_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_trusted_advisor_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "trustedadvisor",
@@ -447,9 +411,7 @@ async def test_get_security_findings_with_trustedadvisor_and_severity_filter(
 ):
     """Test get_security_findings with trustedadvisor service and severity filter."""
     # Mock get_trusted_advisor_findings
-    with mock.patch(
-        "src.server.get_trusted_advisor_findings"
-    ) as mock_get_findings:
+    with mock.patch("src.server.get_trusted_advisor_findings") as mock_get_findings:
         # Set up mock return value
         mock_get_findings.return_value = {
             "service": "trustedadvisor",
@@ -489,16 +451,12 @@ async def test_get_security_findings_with_trustedadvisor_and_severity_filter(
 async def test_get_security_findings_with_macie(mock_ctx, mock_boto3_session):
     """Test get_security_findings with macie service."""
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_macie_findings
-        with mock.patch(
-            "src.server.get_macie_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_macie_findings") as mock_get_findings:
             # Set up mock return value
             mock_get_findings.return_value = {
                 "service": "macie",
@@ -531,9 +489,7 @@ async def test_get_security_findings_with_macie(mock_ctx, mock_boto3_session):
 async def test_get_security_findings_with_severity_filter_guardduty(mock_ctx, mock_boto3_session):
     """Test get_security_findings with guardduty service and severity filter."""
     # Mock get_guardduty_findings
-    with mock.patch(
-        "src.server.get_guardduty_findings"
-    ) as mock_get_findings:
+    with mock.patch("src.server.get_guardduty_findings") as mock_get_findings:
         # Set up mock return value
         mock_get_findings.return_value = {
             "service": "guardduty",
@@ -569,9 +525,7 @@ async def test_get_security_findings_with_severity_filter_guardduty(mock_ctx, mo
 async def test_get_security_findings_with_unsupported_service(mock_ctx, mock_boto3_session):
     """Test get_security_findings with unsupported service."""
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
@@ -594,9 +548,7 @@ async def test_get_security_findings_with_unsupported_service(mock_ctx, mock_bot
 async def test_get_security_findings_with_exception(mock_ctx, mock_boto3_session):
     """Test get_security_findings with exception."""
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
@@ -629,16 +581,12 @@ async def test_get_security_findings_updates_context_when_service_disabled(
     context_storage["security_services_us-east-1"] = {"service_statuses": {}}
 
     # Mock the severity_filter Field
-    with mock.patch(
-        "src.server.FIELD_SEVERITY_FILTER"
-    ) as mock_severity_filter:
+    with mock.patch("src.server.FIELD_SEVERITY_FILTER") as mock_severity_filter:
         # Set the mock severity_filter to None
         mock_severity_filter.default = None
 
         # Mock get_guardduty_findings
-        with mock.patch(
-            "src.server.get_guardduty_findings"
-        ) as mock_get_findings:
+        with mock.patch("src.server.get_guardduty_findings") as mock_get_findings:
             # Set up mock return value indicating service is disabled
             mock_get_findings.return_value = {
                 "service": "guardduty",

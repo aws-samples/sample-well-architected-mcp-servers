@@ -932,9 +932,7 @@ async def test_check_cloudfront_distributions_s3_origins_without_oai(
 async def test_check_network_security_with_multiple_services(mock_ctx, mock_boto3_session):
     """Test check_network_security with multiple services."""
     # Mock find_network_resources
-    with mock.patch(
-        "src.util.network_security.find_network_resources"
-    ) as mock_find:
+    with mock.patch("src.util.network_security.find_network_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 3,
             "resources_by_service": {
@@ -956,21 +954,11 @@ async def test_check_network_security_with_multiple_services(mock_ctx, mock_boto
 
         # Mock service-specific check functions
         with (
-            mock.patch(
-                "src.util.network_security.check_classic_load_balancers"
-            ) as mock_check_elb,
-            mock.patch(
-                "src.util.network_security.check_elbv2_load_balancers"
-            ) as mock_check_elbv2,
-            mock.patch(
-                "src.util.network_security.check_vpc_endpoints"
-            ) as mock_check_vpc,
-            mock.patch(
-                "src.util.network_security.check_security_groups"
-            ) as mock_check_sg,
-            mock.patch(
-                "src.util.network_security.check_api_gateway"
-            ) as mock_check_api,
+            mock.patch("src.util.network_security.check_classic_load_balancers") as mock_check_elb,
+            mock.patch("src.util.network_security.check_elbv2_load_balancers") as mock_check_elbv2,
+            mock.patch("src.util.network_security.check_vpc_endpoints") as mock_check_vpc,
+            mock.patch("src.util.network_security.check_security_groups") as mock_check_sg,
+            mock.patch("src.util.network_security.check_api_gateway") as mock_check_api,
         ):
             # Set up mock return values
             mock_check_elb.return_value = {
@@ -1049,9 +1037,7 @@ async def test_check_network_security_with_multiple_services(mock_ctx, mock_boto
 async def test_check_network_security_cloudfront_in_us_east_1(mock_ctx, mock_boto3_session):
     """Test check_network_security with CloudFront in us-east-1 region."""
     # Mock find_network_resources
-    with mock.patch(
-        "src.util.network_security.find_network_resources"
-    ) as mock_find:
+    with mock.patch("src.util.network_security.find_network_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 1,
             "resources_by_service": {
@@ -1101,9 +1087,7 @@ async def test_check_network_security_cloudfront_in_us_east_1(mock_ctx, mock_bot
 async def test_check_network_security_cloudfront_not_in_us_east_1(mock_ctx, mock_boto3_session):
     """Test check_network_security with CloudFront in a region other than us-east-1."""
     # Mock find_network_resources
-    with mock.patch(
-        "src.util.network_security.find_network_resources"
-    ) as mock_find:
+    with mock.patch("src.util.network_security.find_network_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 0,
             "resources_by_service": {},

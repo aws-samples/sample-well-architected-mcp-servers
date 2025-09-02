@@ -1,5 +1,8 @@
-# AWS Well-Architected Security Assessment Tool MCP Server
+# AWS Well-Architected Security Assessment Tool MCP Server (Sample Steamable-http Version)
 
+This repository contains a sample implementation of the AWS Well-Architected Security Assessment Tool MCP Server. This server is designed to be used as a standalone application. In the Cloud Optimization Assistant Demo project, this server has been changed to support streamable HTTP communication, and deployed into Amazon Bedrock AgentCore Runtime. 
+
+## If you are looking for the official latest version of the AWS Well-Architected Security Assessment Tool MCP Server, please visit the [awslabs/mcp repo](https://github.com/awslabs/mcp)
 [![PyPI version](https://img.shields.io/pypi/v/awslabs.well-architected-security-mcp-server.svg)](https://pypi.org/project/awslabs.well-architected-security-mcp-server/)
 
 A Model Context Protocol (MCP) server that provides operational tools for monitoring and assessing AWS environments against the AWS Well-Architected Framework Security Pillar. This server enables AI assistants to help operations teams evaluate security posture, monitor compliance status, and optimize security costs while maintaining operational excellence according to the Well-Architected Framework.
@@ -16,26 +19,6 @@ A Model Context Protocol (MCP) server that provides operational tools for monito
 - **Security Operations Context**: Access stored security context data for operational analysis and trending
 
 Operations teams can use the `CheckSecurityServices` tool to monitor if critical AWS security services are operational across their infrastructure. The `GetSecurityFindings` tool provides operational visibility into security findings, while `AnalyzeSecurityPosture` delivers comprehensive security operations reporting against the Well-Architected Framework. The `ExploreAwsResources` tool provides operational inventory capabilities across services and regions to ensure complete operational visibility and cost optimization of the AWS environment.
-
-## Installation
-
-```bash
-# Install using uv
-uv pip install awslabs.well-architected-security-mcp-server
-
-# Or install using pip
-pip install awslabs.well-architected-security-mcp-server
-```
-
-You can also run the MCP server directly from a local clone of the GitHub repository:
-
-```bash
-# Clone the awslabs repository
-git clone https://github.com/awslabs/mcp.git
-
-# Run the server directly using uv
-uv --directory /path/to/well-architected-security-mcp-server/src/well-architected-security-mcp-server/awslabs/well_architected_security_mcp_server run server.py
-```
 
 ## Usage Environments
 
@@ -77,30 +60,7 @@ For optimal operational deployment:
 
 ## Configuration
 
-
-| Cursor | VS Code |
-|:------:|:-------:|
-| [![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.sh/installMcpServer?name=well-architected-security-mcp-server&command=uvx&args=%5B%22--from%22%2C%22awslabs.well-architected-security-mcp-server%22%2C%22well-architected-security-mcp-server%22%5D) | [![Install on VS Code](https://img.shields.io/badge/Install-VS_Code-FF9900?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=AWS%20Well-Architected%20Security%20Assessment%20Tool%20MCP%20Server&config=%7B%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22awslabs.well-architected-security-mcp-server%40latest%22%5D%2C%22env%22%3A%7B%22AWS_PROFILE%22%3A%22your-aws-profile%22%2C%22AWS_REGION%22%3A%22us-east-1%22%2C%22FASTMCP_LOG_LEVEL%22%3A%22ERROR%22%7D%2C%22disabled%22%3Afalse%2C%22autoApprove%22%3A%5B%5D%7D) |
-
 Add the AWS Well-Architected Security Assessment Tool MCP Server to your MCP client configuration:
-
-```json
-{
-  "mcpServers": {
-    "well-architected-security-mcp-server": {
-      "command": "uvx",
-      "args": ["--from", "awslabs.well-architected-security-mcp-server", "well-architected-security-mcp-server"],
-      "env": {
-        "AWS_PROFILE": "your-aws-profile", // Optional - uses your local AWS configuration if not specified
-        "AWS_REGION": "your-aws-region", // Optional - uses your local AWS configuration if not specified
-        "FASTMCP_LOG_LEVEL": "ERROR"
-      }
-    }
-  }
-}
-```
-
-If running from a local repository, configure the MCP client like this:
 
 ```json
 {
@@ -236,5 +196,4 @@ This script will:
 For more detailed information about testing, see the tests/README.md file in the project repository.
 
 ## License
-
-This project is licensed under the Apache License, Version 2.0.
+MIT-0

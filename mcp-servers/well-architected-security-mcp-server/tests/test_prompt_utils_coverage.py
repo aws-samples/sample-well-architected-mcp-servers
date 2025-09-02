@@ -28,9 +28,7 @@ from src.util.prompt_utils import (
 
 def test_load_prompt_templates_with_missing_file():
     """Test loading prompt templates when file doesn't exist."""
-    with mock.patch(
-        "src.util.prompt_utils._is_initialized", False
-    ):
+    with mock.patch("src.util.prompt_utils._is_initialized", False):
         result = load_prompt_templates("nonexistent_file.md")
         assert result == {}
 
@@ -68,9 +66,7 @@ Check:
 
     try:
         # Reset the global state
-        with mock.patch(
-            "src.util.prompt_utils._is_initialized", False
-        ):
+        with mock.patch("src.util.prompt_utils._is_initialized", False):
             with mock.patch(
                 "src.util.prompt_utils._prompt_templates",
                 {},
@@ -105,9 +101,7 @@ def test_get_prompt_template_existing():
         "src.util.prompt_utils._prompt_templates",
         mock_templates,
     ):
-        with mock.patch(
-            "src.util.prompt_utils._is_initialized", True
-        ):
+        with mock.patch("src.util.prompt_utils._is_initialized", True):
             result = get_prompt_template("test_template")
 
             assert result is not None
@@ -117,12 +111,8 @@ def test_get_prompt_template_existing():
 
 def test_get_prompt_template_nonexistent():
     """Test getting a non-existent prompt template."""
-    with mock.patch(
-        "src.util.prompt_utils._prompt_templates", {}
-    ):
-        with mock.patch(
-            "src.util.prompt_utils._is_initialized", True
-        ):
+    with mock.patch("src.util.prompt_utils._prompt_templates", {}):
+        with mock.patch("src.util.prompt_utils._is_initialized", True):
             result = get_prompt_template("nonexistent_template")
 
             assert result is None
@@ -140,9 +130,7 @@ def test_get_all_template_names():
         "src.util.prompt_utils._prompt_templates",
         mock_templates,
     ):
-        with mock.patch(
-            "src.util.prompt_utils._is_initialized", True
-        ):
+        with mock.patch("src.util.prompt_utils._is_initialized", True):
             result = get_all_template_names()
 
             assert len(result) == 3
@@ -162,9 +150,7 @@ def test_get_template_metadata():
         "src.util.prompt_utils._prompt_templates",
         mock_templates,
     ):
-        with mock.patch(
-            "src.util.prompt_utils._is_initialized", True
-        ):
+        with mock.patch("src.util.prompt_utils._is_initialized", True):
             result = get_template_metadata()
 
             assert len(result) == 2

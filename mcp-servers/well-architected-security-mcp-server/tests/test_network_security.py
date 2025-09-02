@@ -800,9 +800,7 @@ async def test_check_cloudfront_distributions_insecure_viewer_protocol(
 async def test_check_network_security_success(mock_ctx, mock_boto3_session):
     """Test successful checking of network security."""
     # Mock find_network_resources
-    with mock.patch(
-        "src.util.network_security.find_network_resources"
-    ) as mock_find:
+    with mock.patch("src.util.network_security.find_network_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 2,
             "resources_by_service": {
@@ -852,9 +850,7 @@ async def test_check_network_security_success(mock_ctx, mock_boto3_session):
 async def test_check_network_security_include_non_compliant_only(mock_ctx, mock_boto3_session):
     """Test checking network security with include_non_compliant_only=True."""
     # Mock find_network_resources
-    with mock.patch(
-        "src.util.network_security.find_network_resources"
-    ) as mock_find:
+    with mock.patch("src.util.network_security.find_network_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 2,
             "resources_by_service": {

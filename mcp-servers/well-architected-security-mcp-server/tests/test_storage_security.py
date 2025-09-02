@@ -444,9 +444,7 @@ async def test_check_s3_buckets_api_error(mock_ctx, mock_s3_client):
 async def test_check_storage_encryption_success(mock_ctx, mock_boto3_session):
     """Test successful checking of storage encryption."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 2,
             "resources_by_service": {
@@ -458,9 +456,7 @@ async def test_check_storage_encryption_success(mock_ctx, mock_boto3_session):
         }
 
         # Mock check_s3_buckets
-        with mock.patch(
-            "src.util.storage_security.check_s3_buckets"
-        ) as mock_check_s3:
+        with mock.patch("src.util.storage_security.check_s3_buckets") as mock_check_s3:
             mock_check_s3.return_value = {
                 "service": "s3",
                 "resources_checked": 2,
@@ -496,9 +492,7 @@ async def test_check_storage_encryption_success(mock_ctx, mock_boto3_session):
 async def test_check_storage_encryption_include_unencrypted_only(mock_ctx, mock_boto3_session):
     """Test checking storage encryption with include_unencrypted_only=True."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 2,
             "resources_by_service": {
@@ -510,9 +504,7 @@ async def test_check_storage_encryption_include_unencrypted_only(mock_ctx, mock_
         }
 
         # Mock check_s3_buckets
-        with mock.patch(
-            "src.util.storage_security.check_s3_buckets"
-        ) as mock_check_s3:
+        with mock.patch("src.util.storage_security.check_s3_buckets") as mock_check_s3:
             mock_check_s3.return_value = {
                 "service": "s3",
                 "resources_checked": 2,

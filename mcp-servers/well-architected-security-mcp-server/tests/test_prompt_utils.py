@@ -346,9 +346,7 @@ Template 1 content
 
     try:
         # Mock the default file path
-        with mock.patch(
-            "src.util.prompt_utils.load_prompt_templates"
-        ) as mock_load:
+        with mock.patch("src.util.prompt_utils.load_prompt_templates") as mock_load:
             mock_load.return_value = {"template_1": {"content": "mocked content"}}
 
             # Call get_prompt_template without loading templates first
@@ -365,9 +363,7 @@ Template 1 content
 
 def test_get_all_template_names_loads_if_not_initialized(reset_prompt_utils_state):
     """Test that get_all_template_names loads templates if not already initialized."""
-    with mock.patch(
-        "src.util.prompt_utils.load_prompt_templates"
-    ) as mock_load:
+    with mock.patch("src.util.prompt_utils.load_prompt_templates") as mock_load:
         mock_load.return_value = {"template_1": {}, "template_2": {}}
 
         # Call get_all_template_names without loading templates first
@@ -382,9 +378,7 @@ def test_get_all_template_names_loads_if_not_initialized(reset_prompt_utils_stat
 
 def test_get_template_metadata_loads_if_not_initialized(reset_prompt_utils_state):
     """Test that get_template_metadata loads templates if not already initialized."""
-    with mock.patch(
-        "src.util.prompt_utils.load_prompt_templates"
-    ) as mock_load:
+    with mock.patch("src.util.prompt_utils.load_prompt_templates") as mock_load:
         mock_load.return_value = {
             "template_1": {
                 "name": "template_1",

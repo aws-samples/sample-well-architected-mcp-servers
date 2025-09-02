@@ -373,9 +373,7 @@ async def test_check_access_analyzer_with_await_exception(mock_ctx, mock_boto3_s
 
     # Mock the get_analyzer_findings_count function to raise an exception during await
     # This will trigger the outer exception handler (lines 107-108)
-    with mock.patch(
-        "src.util.security_services.get_analyzer_findings_count"
-    ) as mock_get_findings:
+    with mock.patch("src.util.security_services.get_analyzer_findings_count") as mock_get_findings:
         mock_get_findings.side_effect = Exception("Await error")
 
         # Call the function
@@ -548,9 +546,7 @@ async def test_get_trusted_advisor_findings_with_category_filter(mock_ctx, mock_
     mock_boto3_session.client.return_value = mock_support_client
 
     # Mock check_trusted_advisor to return enabled
-    with mock.patch(
-        "src.util.security_services.check_trusted_advisor"
-    ) as mock_check_ta:
+    with mock.patch("src.util.security_services.check_trusted_advisor") as mock_check_ta:
         mock_check_ta.return_value = {"enabled": True}
 
         # Mock describe_trusted_advisor_checks to return checks with different categories
@@ -602,9 +598,7 @@ async def test_get_guardduty_findings_no_detector_id(mock_ctx, mock_boto3_sessio
     )
 
     # Mock check_guard_duty to return enabled but with empty detector details
-    with mock.patch(
-        "src.util.security_services.check_guard_duty"
-    ) as mock_check_gd:
+    with mock.patch("src.util.security_services.check_guard_duty") as mock_check_gd:
         mock_check_gd.return_value = {
             "enabled": True,
             "detector_details": {},  # Empty detector details
@@ -632,9 +626,7 @@ async def test_get_guardduty_findings_no_findings_match_filter(mock_ctx, mock_bo
     mock_boto3_session.client.return_value = mock_guardduty_client
 
     # Mock check_guard_duty to return enabled with detector ID
-    with mock.patch(
-        "src.util.security_services.check_guard_duty"
-    ) as mock_check_gd:
+    with mock.patch("src.util.security_services.check_guard_duty") as mock_check_gd:
         mock_check_gd.return_value = {
             "enabled": True,
             "detector_details": {"detector-123": {"Status": "ENABLED"}},
@@ -668,9 +660,7 @@ async def test_get_trusted_advisor_findings_check_error(mock_ctx, mock_boto3_ses
     mock_boto3_session.client.return_value = mock_support_client
 
     # Mock check_trusted_advisor to return enabled
-    with mock.patch(
-        "src.util.security_services.check_trusted_advisor"
-    ) as mock_check_ta:
+    with mock.patch("src.util.security_services.check_trusted_advisor") as mock_check_ta:
         mock_check_ta.return_value = {"enabled": True}
 
         # Mock describe_trusted_advisor_checks to return checks

@@ -77,9 +77,7 @@ def test_main():
         # Mock asyncio.run
         with mock.patch("asyncio.run") as mock_run:
             # Mock mcp.run
-            with mock.patch(
-                "src.server.mcp.run"
-            ) as mock_mcp_run:
+            with mock.patch("src.server.mcp.run") as mock_mcp_run:
                 # Call the main function
                 main()
 
@@ -90,27 +88,4 @@ def test_main():
                 mock_mcp_run.assert_called_once()
 
 
-def test_main_with_sse():
-    """Test the main function with SSE transport."""
-    # Mock argparse.ArgumentParser
-    with mock.patch("argparse.ArgumentParser") as mock_parser:
-        # Mock the parse_args method
-        mock_parser.return_value.parse_args.return_value = mock.MagicMock(sse=True, port=9999)
 
-        # Mock asyncio.run
-        with mock.patch("asyncio.run") as mock_run:
-            # Mock mcp.run
-            with mock.patch(
-                "src.server.mcp.run"
-            ) as mock_mcp_run:
-                # Call the main function
-                main()
-
-                # Verify asyncio.run was not called since initialize was removed
-                mock_run.assert_not_called()
-
-                # Verify mcp.settings.port was set
-                assert mcp.settings.port == 9999
-
-                # Verify mcp.run was called with transport="sse"
-                mock_mcp_run.assert_called_once_with(transport="sse")

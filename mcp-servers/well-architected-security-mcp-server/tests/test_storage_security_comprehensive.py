@@ -27,9 +27,7 @@ from src.util.storage_security import (
 async def test_check_storage_encryption_multiple_services(mock_ctx, mock_boto3_session):
     """Test checking storage encryption with multiple services."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 6,
             "resources_by_service": {
@@ -52,18 +50,10 @@ async def test_check_storage_encryption_multiple_services(mock_ctx, mock_boto3_s
 
         # Mock all service check functions
         with (
-            mock.patch(
-                "src.util.storage_security.check_s3_buckets"
-            ) as mock_check_s3,
-            mock.patch(
-                "src.util.storage_security.check_ebs_volumes"
-            ) as mock_check_ebs,
-            mock.patch(
-                "src.util.storage_security.check_rds_instances"
-            ) as mock_check_rds,
-            mock.patch(
-                "src.util.storage_security.check_dynamodb_tables"
-            ) as mock_check_dynamodb,
+            mock.patch("src.util.storage_security.check_s3_buckets") as mock_check_s3,
+            mock.patch("src.util.storage_security.check_ebs_volumes") as mock_check_ebs,
+            mock.patch("src.util.storage_security.check_rds_instances") as mock_check_rds,
+            mock.patch("src.util.storage_security.check_dynamodb_tables") as mock_check_dynamodb,
         ):
             # Set up mock returns
             mock_check_s3.return_value = {
@@ -134,9 +124,7 @@ async def test_check_storage_encryption_multiple_services(mock_ctx, mock_boto3_s
 async def test_check_storage_encryption_with_efs_and_elasticache(mock_ctx, mock_boto3_session):
     """Test checking storage encryption with EFS and ElastiCache services."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 2,
             "resources_by_service": {
@@ -153,9 +141,7 @@ async def test_check_storage_encryption_with_efs_and_elasticache(mock_ctx, mock_
 
         # Mock EFS and ElastiCache check functions
         with (
-            mock.patch(
-                "src.util.storage_security.check_efs_filesystems"
-            ) as mock_check_efs,
+            mock.patch("src.util.storage_security.check_efs_filesystems") as mock_check_efs,
             mock.patch(
                 "src.util.storage_security.check_elasticache_clusters"
             ) as mock_check_elasticache,
@@ -204,9 +190,7 @@ async def test_check_storage_encryption_with_efs_and_elasticache(mock_ctx, mock_
 async def test_check_storage_encryption_unsupported_service(mock_ctx, mock_boto3_session):
     """Test checking storage encryption with unsupported service."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 1,
             "resources_by_service": {
@@ -235,9 +219,7 @@ async def test_check_storage_encryption_unsupported_service(mock_ctx, mock_boto3
 async def test_check_storage_encryption_find_resources_error(mock_ctx, mock_boto3_session):
     """Test checking storage encryption when find_storage_resources returns error."""
     # Mock find_storage_resources to return error
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "error": "Resource Explorer not configured",
             "total_resources": 0,
@@ -262,9 +244,7 @@ async def test_check_storage_encryption_find_resources_error(mock_ctx, mock_boto
 async def test_check_storage_encryption_service_check_error(mock_ctx, mock_boto3_session):
     """Test checking storage encryption when service check function returns error."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 1,
             "resources_by_service": {
@@ -275,9 +255,7 @@ async def test_check_storage_encryption_service_check_error(mock_ctx, mock_boto3
         }
 
         # Mock check_s3_buckets to return error
-        with mock.patch(
-            "src.util.storage_security.check_s3_buckets"
-        ) as mock_check_s3:
+        with mock.patch("src.util.storage_security.check_s3_buckets") as mock_check_s3:
             mock_check_s3.return_value = {
                 "service": "s3",
                 "error": "API Error",
@@ -306,9 +284,7 @@ async def test_check_storage_encryption_service_check_error(mock_ctx, mock_boto3
 async def test_check_storage_encryption_empty_services(mock_ctx, mock_boto3_session):
     """Test checking storage encryption with empty services list."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 0,
             "resources_by_service": {},
@@ -334,9 +310,7 @@ async def test_check_storage_encryption_empty_services(mock_ctx, mock_boto3_sess
 async def test_check_storage_encryption_no_resources_found(mock_ctx, mock_boto3_session):
     """Test checking storage encryption when no resources are found."""
     # Mock find_storage_resources
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         mock_find.return_value = {
             "total_resources": 0,
             "resources_by_service": {

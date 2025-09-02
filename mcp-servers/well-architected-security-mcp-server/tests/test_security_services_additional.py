@@ -36,9 +36,7 @@ async def test_get_securityhub_findings_with_no_filter_criteria(
     mock_boto3_session.client.return_value = mock_securityhub_client
 
     # Mock check_security_hub to return enabled
-    with mock.patch(
-        "src.util.security_services.check_security_hub"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_security_hub") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock get_findings to return findings
@@ -112,9 +110,7 @@ async def test_get_securityhub_findings_with_custom_filter_criteria(
     mock_boto3_session.client.return_value = mock_securityhub_client
 
     # Mock check_security_hub to return enabled
-    with mock.patch(
-        "src.util.security_services.check_security_hub"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_security_hub") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock get_findings to return findings
@@ -181,9 +177,7 @@ async def test_get_securityhub_findings_with_no_findings(
     mock_boto3_session.client.return_value = mock_securityhub_client
 
     # Mock check_security_hub to return enabled
-    with mock.patch(
-        "src.util.security_services.check_security_hub"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_security_hub") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock get_findings to return no findings
@@ -210,9 +204,7 @@ async def test_get_securityhub_findings_error(
     mock_boto3_session.client.return_value = mock_securityhub_client
 
     # Mock check_security_hub to return enabled
-    with mock.patch(
-        "src.util.security_services.check_security_hub"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_security_hub") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock get_findings to raise an exception
@@ -240,9 +232,7 @@ async def test_get_inspector_findings_error(mock_ctx, mock_boto3_session, mock_i
     mock_boto3_session.client.return_value = mock_inspector_client
 
     # Mock check_inspector to return enabled
-    with mock.patch(
-        "src.util.security_services.check_inspector"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_inspector") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock list_findings to raise an exception
@@ -272,9 +262,7 @@ async def test_get_access_analyzer_findings_error(
     mock_boto3_session.client.return_value = mock_accessanalyzer_client
 
     # Mock check_access_analyzer to return enabled
-    with mock.patch(
-        "src.util.security_services.check_access_analyzer"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_access_analyzer") as mock_check:
         mock_check.return_value = {
             "enabled": True,
             "analyzers": [
@@ -311,9 +299,7 @@ async def test_get_macie_findings_error(mock_ctx, mock_boto3_session, mock_macie
     mock_boto3_session.client.return_value = mock_macie_client
 
     # Mock check_macie to return enabled
-    with mock.patch(
-        "src.util.security_services.check_macie"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_macie") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock list_findings to raise an exception
@@ -343,9 +329,7 @@ async def test_get_trusted_advisor_findings_error(
     mock_boto3_session.client.return_value = mock_support_client
 
     # Mock check_trusted_advisor to return enabled
-    with mock.patch(
-        "src.util.security_services.check_trusted_advisor"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_trusted_advisor") as mock_check:
         mock_check.return_value = {"enabled": True, "support_tier": "Business/Enterprise"}
 
         # Mock describe_trusted_advisor_checks to raise an exception
@@ -377,9 +361,7 @@ async def test_get_inspector_findings_with_custom_filter_criteria(
     mock_boto3_session.client.return_value = mock_inspector_client
 
     # Mock check_inspector to return enabled
-    with mock.patch(
-        "src.util.security_services.check_inspector"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_inspector") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock list_findings to return findings
@@ -446,9 +428,7 @@ async def test_get_macie_findings_with_custom_filter_criteria(
     mock_boto3_session.client.return_value = mock_macie_client
 
     # Mock check_macie to return enabled
-    with mock.patch(
-        "src.util.security_services.check_macie"
-    ) as mock_check:
+    with mock.patch("src.util.security_services.check_macie") as mock_check:
         mock_check.return_value = {"enabled": True}
 
         # Mock list_findings to return findings

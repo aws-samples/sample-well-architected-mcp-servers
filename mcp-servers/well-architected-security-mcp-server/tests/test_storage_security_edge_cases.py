@@ -536,9 +536,7 @@ async def test_find_storage_resources_with_pagination(mock_ctx, mock_boto3_sessi
 async def test_check_storage_encryption_with_botocore_error(mock_ctx, mock_boto3_session):
     """Test check_storage_encryption when BotoCoreError occurs."""
     # Mock find_storage_resources to raise BotoCoreError
-    with mock.patch(
-        "src.util.storage_security.find_storage_resources"
-    ) as mock_find:
+    with mock.patch("src.util.storage_security.find_storage_resources") as mock_find:
         from botocore.exceptions import BotoCoreError
 
         mock_find.side_effect = BotoCoreError()
