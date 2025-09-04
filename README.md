@@ -2,18 +2,45 @@
 
 A comprehensive platform for AWS security analysis and cloud optimization using Amazon Bedrock agents and Model Context Protocol (MCP) servers.
 
-## 📚 **Complete Documentation**
-
-For comprehensive guides, configuration details, and advanced setup instructions, visit:
-**[📖 Documentation Center](docs/README.md)**
-
-Includes detailed guides for:
-- Cross-account role setup and security
-- Cognito centralization and authentication
-- Parameter Store configuration management
-- Architecture diagrams and system design
-
 ## 🏗️ **Architecture Overview**
+
+![AWS Architecture Diagram](docs/images/coa-security-assistant-0.1.0.png)
+
+## 🏗️ **System Architecture Components**
+
+The Cloud Optimization Assistant consists of the following key components:
+
+• **🌐 Web Chatbot Interface**
+  - Frontend hosted on S3 with CloudFront distribution for global delivery
+  - ECS service providing the backend API and business logic
+  - Real-time chat interface for user interactions
+
+• **🤖 Amazon Bedrock Agent**
+  - AI Agent deployed on Amazon Bedrock Agent service
+  - Primary communication endpoint for the ECS backend service
+  - Intelligent orchestration of security analysis workflows
+
+• **🧠 LLM Model Integration**
+  - Invokes AWS Bedrock models, primarily Anthropic Claude 3.7 Sonnet
+  - Configurable model selection for optimal performance and cost
+  - Runtime model switching capabilities for different task complexities
+
+• **🔧 MCP Server Architecture**
+  - **Self-Maintained MCP Servers**: Deployed in Amazon Bedrock AgentCore Runtime
+  - **Remote MCP Servers**: Accessed via streamable-http MCP (Model Context Protocol)
+  - Provides specialized tools for AWS security assessments and analysis
+
+• **☁️ AWS Account Integration**
+  - Self-maintained MCP servers interact with AWS accounts using IAM role access
+  - Cross-account security analysis with read-only permissions
+  - Secure, least-privilege access patterns for multi-account environments
+
+• **🔐 Centralized Authentication**
+  - Amazon Cognito provides unified authentication across all components
+  - Single sign-on experience for users accessing different system parts
+  - Secure token-based authentication for API communications
+
+
 
 ```
 /
@@ -99,6 +126,19 @@ deployment-scripts/
 ├── generate_remote_role_stack.py            # Cross-account role template generation
 └── update_cognito_callbacks.py              # Cognito callback URL updates
 ```
+
+## 📚 **Complete Documentation**
+
+For comprehensive guides, configuration details, and advanced setup instructions, visit:
+**[📖 Documentation Center](docs/README.md)**
+
+Includes detailed guides for:
+- Cross-account role setup and security
+- Cognito centralization and authentication
+- Parameter Store configuration management
+- Architecture diagrams and system design
+
+----
 
 ## 🎯 **Well-Architected Pillars Coverage**
 
