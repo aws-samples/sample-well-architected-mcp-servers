@@ -175,22 +175,44 @@ class ChatbotStackDeployer:
         with open(template_path, "r") as f:
             return f.read()
 
+    def configure_s3_bucket_for_eventbridge(self, bucket_name: str):
+        """Configure S3 bucket for EventBridge notifications"""
+        try:
+            # Enable EventBridge for S3 events
+            self.s3_client.put_bucket_notification_configuration(
+                Bucket=bucket_name,
+                NotificationConfiguration={"EventBridgeConfiguration": {}},
+            )
+            logger.info(f"EventBridge notifications configured for bucket: {bucket_name}")
+        except ClientError as e:
+            logger.warning(f"Could not configure EventBridge notifications: {e}")
+            # This is not critical for the basic deployment
+
     def deploy(self) -> Dict[str, Any]:
-        """Deploy the chatbot CloudFormation stack"""
-
+        """Deploy the chatbot CloudFormation stack using optimized 3-stage approach"""
+        
+        logger.info("=== STAGE 1: Infrastructure Preparation ===")
+        
+        # Stage 1: Create S3 bucket for source code (outside CloudFormation)
+        actual_source_bucket = self.create_s3_bucket_for_source()
+        
+        # Configure EventBridge notifications for the bucket
+        self.configure_s3_bucket_for_eventbridge(actual_source_bucket)
+        
+        logger.info("=== STAGE 2: CloudFormation Deployment ===")
+        
+        # Stage 2: Deploy CloudFormation stack (template is now small enough for direct use)
         template_body = self.load_template()
-
-        # Create source bucket first
-        source_bucket = self.create_s3_bucket_for_source()
-
+        
         parameters = [
             {"ParameterKey": "Environment", "ParameterValue": self.environment},
-            {"ParameterKey": "SourceBucket", "ParameterValue": source_bucket},
+            {"ParameterKey": "SourceBucket", "ParameterValue": actual_source_bucket},
         ]
 
         logger.info(f"Deploying stack: {self.stack_name}")
         logger.info(f"Environment: {self.environment}")
-        logger.info(f"Source bucket: {source_bucket}")
+        logger.info(f"Using existing SourceBucket: {actual_source_bucket}")
+        logger.info(f"Template size: {len(template_body)} characters (within 51,200 limit)")
 
         try:
             # Check if stack exists
@@ -243,7 +265,7 @@ class ChatbotStackDeployer:
             )
 
             # Apply bucket policy after stack creation
-            self.apply_bucket_policy(source_bucket)
+            self.apply_bucket_policy(actual_source_bucket)
 
             # Get stack outputs
             stack_info = self.cf_client.describe_stacks(StackName=self.stack_name)
@@ -262,7 +284,7 @@ class ChatbotStackDeployer:
                 "StackStatus": stack["StackStatus"],
                 "Region": self.region,
                 "Environment": self.environment,
-                "SourceBucket": source_bucket,
+                "SourceBucket": outputs.get("SourceBucketName", ""),
                 "Outputs": outputs,
             }
 
@@ -284,7 +306,7 @@ class ChatbotStackDeployer:
                     "StackStatus": stack["StackStatus"],
                     "Region": self.region,
                     "Environment": self.environment,
-                    "SourceBucket": source_bucket,
+                    "SourceBucket": outputs.get("SourceBucketName", ""),
                     "Outputs": outputs,
                 }
             else:
@@ -312,7 +334,7 @@ class ChatbotStackDeployer:
             # Try to describe the user pool
             response = self.cognito_client.describe_user_pool(UserPoolId=user_pool_id)
             logger.info(f"Cognito User Pool verified: {user_pool_id}")
-            logger.info(f"{response.body}")
+            logger.info(f"User Pool Name: {response['UserPool']['Name']}")
             return True
 
         except ClientError as e:

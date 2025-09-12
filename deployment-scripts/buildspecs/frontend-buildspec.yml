@@ -1,0 +1,40 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - echo Frontend build started on `date`
+      - cd cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend
+  build:
+    commands:
+      - echo Creating frontend configuration...
+      - |
+        cat > config.js << EOF
+        window.APP_CONFIG = {
+          "cognito": {
+            "userPoolId": "$USER_POOL_ID",
+            "clientId": "$WEB_APP_CLIENT_ID",
+            "domain": "${AWS_STACK_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}.auth.${AWS_DEFAULT_REGION}.amazoncognito.com"
+          },
+          "api": {
+            "baseUrl": "https://$CLOUDFRONT_DOMAIN",
+            "endpoints": {
+              "chat": "https://$CLOUDFRONT_DOMAIN/api/chat",
+              "health": "https://$CLOUDFRONT_DOMAIN/health",
+              "websocket": "wss://$CLOUDFRONT_DOMAIN/ws"
+            }
+          },
+          "app": {
+            "name": "Cloud Optimization Platform",
+            "version": "1.0.0"
+          }
+        };
+        EOF
+      - echo Configuration created successfully
+      - ls -la
+  post_build:
+    commands:
+      - echo Uploading to S3...
+      - aws s3 sync . s3://$FRONTEND_BUCKET/ --delete
+      - echo Creating CloudFront invalidation...
+      - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
+      - echo Frontend deployment completed on `date`
