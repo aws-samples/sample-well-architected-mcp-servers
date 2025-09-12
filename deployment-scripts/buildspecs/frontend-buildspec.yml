@@ -1,0 +1,51 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - echo Frontend build started on `date`
+      - cd cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend
+      - echo "Current directory contents:"
+      - ls -la
+  build:
+    commands:
+      - echo Creating frontend configuration...
+      - |
+        cat > config.js << EOF
+        window.APP_CONFIG = {
+          "cognito": {
+            "userPoolId": "$USER_POOL_ID",
+            "clientId": "$WEB_APP_CLIENT_ID",
+            "domain": "${AWS_STACK_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}.auth.${AWS_DEFAULT_REGION}.amazoncognito.com"
+          },
+          "api": {
+            "baseUrl": "https://$CLOUDFRONT_DOMAIN",
+            "endpoints": {
+              "chat": "https://$CLOUDFRONT_DOMAIN/api/chat",
+              "health": "https://$CLOUDFRONT_DOMAIN/api/health",
+              "websocket": "wss://$CLOUDFRONT_DOMAIN/ws"
+            }
+          },
+          "app": {
+            "name": "Cloud Optimization Platform",
+            "version": "1.0.0"
+          }
+        };
+        EOF
+      - echo "✅ Configuration created successfully"
+      - echo "Frontend files to deploy:"
+      - ls -la *.html *.css *.js 2>/dev/null || echo "No additional frontend files found"
+  post_build:
+    commands:
+      - echo "📦 Uploading frontend files to S3..."
+      - echo "Uploading HTML files..."
+      - aws s3 cp index.html s3://$FRONTEND_BUCKET/index.html --content-type "text/html"
+      - aws s3 cp local-test.html s3://$FRONTEND_BUCKET/local-test.html --content-type "text/html" || echo "local-test.html not found, skipping"
+      - echo "Uploading configuration..."
+      - aws s3 cp config.js s3://$FRONTEND_BUCKET/config.js --content-type "application/javascript"
+      - echo "Uploading any CSS files..."
+      - for file in *.css; do [ -f "$file" ] && aws s3 cp "$file" s3://$FRONTEND_BUCKET/"$file" --content-type "text/css" || echo "No CSS files found"; done
+      - echo "Uploading any additional JS files..."
+      - for file in *.js; do [ -f "$file" ] && [ "$file" != "config.js" ] && aws s3 cp "$file" s3://$FRONTEND_BUCKET/"$file" --content-type "application/javascript" || true; done
+      - echo "🔄 Creating CloudFront invalidation..."
+      - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
+      - echo "✅ Frontend deployment completed on `date`"
