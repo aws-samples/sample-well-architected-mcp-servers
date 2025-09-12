@@ -9,11 +9,16 @@ Parameters:
       - dev
       - staging
       - prod
-    Description: Environment name
+    Description: Environment name for resource tagging and configuration
+    ConstraintDescription: Must be one of dev, staging, or prod
 
   SourceBucket:
     Type: String
-    Description: S3 bucket for source code storage
+    Description: S3 bucket for source code storage (created by deployment script)
+    MinLength: 3
+    MaxLength: 63
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]*[a-z0-9]$'
+    ConstraintDescription: 'Bucket name must be 3-63 characters, lowercase, and follow S3 naming rules'
 
   SourceKey:
     Type: String
@@ -21,6 +26,9 @@ Parameters:
     Description: S3 key for source code zip file
 
 Resources:
+  # ===== NOTE: SourceBucket is created by deployment script =====
+  # No bucket validation needed as deployment script handles bucket creation and configuration
+
   # ===== COGNITO RESOURCES =====
   SharedUserPool:
     Type: AWS::Cognito::UserPool
@@ -194,6 +202,105 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  # ===== S3 EVENT TRIGGER SYSTEM =====
+  # EventBridge rule to trigger CodePipeline on S3 object creation
+  S3PipelineTriggerRule:
+    Type: AWS::Events::Rule
+    DependsOn: CodePipeline
+    Properties:
+      Name: !Sub '${AWS::StackName}-s3-pipeline-trigger'
+      Description: 'Trigger CodePipeline when source code is uploaded to S3'
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref SourceBucket
+          object:
+            key:
+              - prefix: !Ref SourceKey
+      State: ENABLED
+      Targets:
+        - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AWS::StackName}-pipeline'
+          Id: CodePipelineTarget
+          RoleArn: !GetAtt EventBridgeCodePipelineRole.Arn
+
+  # IAM role for EventBridge to trigger CodePipeline
+  EventBridgeCodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-eventbridge-pipeline-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TriggerCodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:StartPipelineExecution
+                Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AWS::StackName}-pipeline'
+      Tags:
+        - Key: Component
+          Value: EventBridge
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===== NOTE: S3 EventBridge configuration handled by deployment script =====
+
+  # ===== ECR REPOSITORY =====
+  # Move ECR repository before IAM roles to resolve dependency cycle
+  BackendECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${AWS::StackName}-backend'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": {
+                  "type": "expire"
+                }
+              },
+              {
+                "rulePriority": 2,
+                "selection": {
+                  "tagStatus": "tagged",
+                  "tagPrefixList": ["v"],
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Backend
+
   # ===== IAM ROLES =====
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
@@ -230,7 +337,9 @@ Resources:
                 Action:
                   - codebuild:BatchGetBuilds
                   - codebuild:StartBuild
-                Resource: !GetAtt FrontendBuildProject.Arn
+                Resource: 
+                  - !GetAtt FrontendBuildProject.Arn
+                  - !GetAtt BackendBuildProject.Arn
               - Effect: Allow
                 Action:
                   - ecs:DescribeServices
@@ -239,11 +348,16 @@ Resources:
                   - ecs:ListTasks
                   - ecs:RegisterTaskDefinition
                   - ecs:UpdateService
-                Resource: '*'
+                Resource: 
+                  - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ECSCluster}'
+                  - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/${ECSCluster}/${ECSService}'
+                  - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/*'
               - Effect: Allow
                 Action:
                   - iam:PassRole
-                Resource: '*'
+                Resource: 
+                  - !GetAtt ECSExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
       Tags:
         - Key: Component
           Value: CodePipeline
@@ -252,6 +366,7 @@ Resources:
 
   CodeBuildServiceRole:
     Type: AWS::IAM::Role
+    DependsOn: BackendECRRepository  # Explicit dependency to ensure ECR repository exists first
     Properties:
       RoleName: !Sub '${AWS::StackName}-codebuild-role'
       AssumeRolePolicyDocument:
@@ -278,7 +393,13 @@ Resources:
                   - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
                   - ecr:BatchGetImage
-                Resource: '*'
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: 
+                  - !GetAtt BackendECRRepository.Arn
+                  - '*'  # GetAuthorizationToken requires wildcard
               - Effect: Allow
                 Action:
                   - s3:GetObject
@@ -299,16 +420,172 @@ Resources:
               - Effect: Allow
                 Action:
                   - ecs:UpdateService
-                Resource: '*'
+                Resource: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/${ECSCluster}/${ECSService}'
               - Effect: Allow
                 Action:
                   - cloudfront:CreateInvalidation
                 Resource: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeDhcpOptions
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeVpcs
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterfacePermission
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*'
+                Condition:
+                  StringEquals:
+                    'ec2:Subnet':
+                      - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${PublicSubnet1}'
+                      - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${PublicSubnet2}'
       Tags:
         - Key: Component
           Value: CodeBuild
         - Key: Environment
           Value: !Ref Environment
+
+  # ===== NOTIFICATION SYSTEM =====
+  PipelineNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-pipeline-notifications'
+      DisplayName: 'COA Pipeline Notifications'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Notifications
+
+  PipelineNotificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref PipelineNotificationTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - events.amazonaws.com
+                - cloudwatch.amazonaws.com
+            Action:
+              - sns:Publish
+            Resource: !Ref PipelineNotificationTopic
+
+  # Pipeline failure alarm
+  PipelineFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-pipeline-failure'
+      AlarmDescription: 'Alert when CodePipeline execution fails'
+      MetricName: PipelineExecutionFailure
+      Namespace: AWS/CodePipeline
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: PipelineName
+          Value: !Ref CodePipeline
+      AlarmActions:
+        - !Ref PipelineNotificationTopic
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Monitoring
+
+  # ECS deployment failure alarm
+  ECSDeploymentFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-ecs-deployment-failure'
+      AlarmDescription: 'Alert when ECS service deployment fails'
+      MetricName: ServiceCount
+      Namespace: AWS/ECS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: ServiceName
+          Value: !Ref ECSService
+        - Name: ClusterName
+          Value: !Ref ECSCluster
+      AlarmActions:
+        - !Ref PipelineNotificationTopic
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Monitoring
+
+  # ECR vulnerability scan alarm
+  ECRVulnerabilityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-ecr-high-vulnerabilities'
+      AlarmDescription: 'Alert when ECR scan finds high/critical vulnerabilities'
+      MetricName: HighVulnerabilityCount
+      Namespace: AWS/ECR
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: RepositoryName
+          Value: !Ref BackendECRRepository
+      AlarmActions:
+        - !Ref PipelineNotificationTopic
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Security
+
+  # Pipeline state change rule
+  PipelineStateChangeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-pipeline-state-change'
+      Description: 'Capture CodePipeline state changes'
+      EventPattern:
+        source:
+          - aws.codepipeline
+        detail-type:
+          - CodePipeline Pipeline Execution State Change
+        detail:
+          pipeline:
+            - !Sub '${AWS::StackName}-pipeline'
+          state:
+            - FAILED
+            - SUCCEEDED
+      State: ENABLED
+      Targets:
+        - Arn: !Ref PipelineNotificationTopic
+          Id: PipelineNotificationTarget
+          InputTransformer:
+            InputPathsMap:
+              pipeline: $.detail.pipeline
+              state: $.detail.state
+              execution-id: $.detail.execution-id
+            InputTemplate: |
+              {
+                "pipeline": "<pipeline>",
+                "state": "<state>",
+                "execution-id": "<execution-id>",
+                "message": "Pipeline <pipeline> execution <execution-id> has <state>"
+              }
 
   # ===== CODEBUILD PROJECTS =====
   FrontendBuildProject:
@@ -342,53 +619,47 @@ Resources:
             Value: !GetAtt CloudFrontDistribution.DomainName
       Source:
         Type: CODEPIPELINE
-        BuildSpec: |
-          version: 0.2
-          phases:
-            pre_build:
-              commands:
-                - echo Frontend build started on `date`
-                - cd cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend
-            build:
-              commands:
-                - echo Creating frontend configuration...
-                - |
-                  cat > config.js << EOF
-                  window.APP_CONFIG = {
-                    "cognito": {
-                      "userPoolId": "$USER_POOL_ID",
-                      "clientId": "$WEB_APP_CLIENT_ID",
-                      "domain": "${AWS_STACK_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}.auth.${AWS_DEFAULT_REGION}.amazoncognito.com"
-                    },
-                    "api": {
-                      "baseUrl": "https://$CLOUDFRONT_DOMAIN",
-                      "endpoints": {
-                        "chat": "https://$CLOUDFRONT_DOMAIN/api/chat",
-                        "health": "https://$CLOUDFRONT_DOMAIN/health",
-                        "websocket": "wss://$CLOUDFRONT_DOMAIN/ws"
-                      }
-                    },
-                    "app": {
-                      "name": "Cloud Optimization Platform",
-                      "version": "1.0.0"
-                    }
-                  };
-                  EOF
-                - echo Configuration created successfully
-                - ls -la
-            post_build:
-              commands:
-                - echo Uploading to S3...
-                - aws s3 sync . s3://$FRONTEND_BUCKET/ --delete
-                - echo Creating CloudFront invalidation...
-                - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
-                - echo Frontend deployment completed on `date`
+        BuildSpec: deployment-scripts/buildspecs/frontend-buildspec.yml
       TimeoutInMinutes: 10
       Tags:
         - Key: Component
           Value: Frontend
         - Key: Environment
           Value: !Ref Environment
+
+  BackendBuildProject:
+    Type: AWS::CodeBuild::Project
+    DependsOn: BackendECRRepository
+    Properties:
+      Name: !Sub '${AWS::StackName}-backend-build'
+      Description: Build and push backend Docker image to ECR
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/standard:7.0
+        PrivilegedMode: true  # Required for Docker builds
+        EnvironmentVariables:
+          - Name: ECR_REPOSITORY_URI
+            Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${BackendECRRepository}'
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: IMAGE_REPO_NAME
+            Value: !Ref BackendECRRepository
+
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: deployment-scripts/buildspecs/backend-buildspec.yml
+      TimeoutInMinutes: 15
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: Backend
 
   # ===== VPC AND NETWORKING =====
   VPC:
@@ -404,6 +675,10 @@ Resources:
           Value: !Ref Environment
         - Key: Component
           Value: WebApp
+        - Key: Project
+          Value: CloudOptimizationAssistant
+        - Key: Application
+          Value: COA
 
   PublicSubnet1:
     Type: AWS::EC2::Subnet
@@ -476,6 +751,128 @@ Resources:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
 
+  # ===== VPC ENDPOINTS FOR SECURE ACCESS =====
+  # ECR API VPC Endpoint
+  ECRAPIVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - ecr:GetAuthorizationToken
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:DescribeRepositories
+              - ecr:DescribeImages
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+              - ecr:PutImage
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ecr-api-endpoint'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: VPCEndpoint
+
+  # ECR Docker VPC Endpoint
+  ECRDockerVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ecr-docker-endpoint'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: VPCEndpoint
+
+  # S3 VPC Endpoint (Gateway type for cost efficiency)
+  S3VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PublicRouteTable
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:GetBucketVersioning
+            Resource:
+              - !Sub 'arn:aws:s3:::${SourceBucket}'
+              - !Sub 'arn:aws:s3:::${SourceBucket}/*'
+              - !Sub '${ArtifactsBucket.Arn}'
+              - !Sub '${ArtifactsBucket.Arn}/*'
+              - !Sub '${FrontendBucket.Arn}'
+              - !Sub '${FrontendBucket.Arn}/*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-s3-endpoint'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: VPCEndpoint
+
+  # Security group for VPC Endpoints
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC Endpoints
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.0.0/16
+          Description: HTTPS from VPC CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc-endpoint-sg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: VPCEndpoint
+
   # ===== SECURITY GROUPS =====
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -510,11 +907,33 @@ Resources:
           ToPort: 8000
           SourceSecurityGroupId: !Ref ALBSecurityGroup
           Description: Traffic from ALB
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound for AWS services (ECR, SSM, Bedrock, etc.)
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          DestinationSecurityGroupId: !Ref VPCEndpointSecurityGroup
+          Description: HTTPS outbound to VPC endpoints
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-ecs-sg'
         - Key: Environment
           Value: !Ref Environment
+
+  # Security group rules to avoid circular dependency
+  ALBToECSSecurityGroupEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ALBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8000
+      ToPort: 8000
+      DestinationSecurityGroupId: !Ref ECSSecurityGroup
+      Description: Outbound to ECS tasks only
 
   # ===== APPLICATION LOAD BALANCER =====
   ApplicationLoadBalancer:
@@ -666,22 +1085,40 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - cognito-idp:*
+                  - cognito-idp:DescribeUserPool
+                  - cognito-idp:ListUserPools
+                  - cognito-idp:DescribeUserPoolClient
+                Resource: 
+                  - !Sub 'arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*'
+              - Effect: Allow
+                Action:
                   - ssm:GetParameter
                   - ssm:GetParameters
                   - ssm:GetParametersByPath
-                Resource: '*'
+                Resource: 
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/coa/*'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloud-optimization-platform/*'
               # MERGED BEDROCK PERMISSIONS FROM PATCH
               - Effect: Allow
                 Action:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0'
+              - Effect: Allow
+                Action:
                   - bedrock:ListFoundationModels
                   - bedrock:GetFoundationModel
+                Resource: '*'
+              - Effect: Allow
+                Action:
                   - bedrock-agent:InvokeAgent
                   - bedrock-agent:GetAgent
                   - bedrock-agent:ListAgents
-                Resource: '*'
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/*/*'
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -719,6 +1156,7 @@ Resources:
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
+    DependsOn: BackendECRRepository
     Properties:
       Family: !Sub '${AWS::StackName}-task'
       NetworkMode: awsvpc
@@ -730,11 +1168,19 @@ Resources:
       TaskRoleArn: !GetAtt ECSTaskRole.Arn
       ContainerDefinitions:
         - Name: backend
-          Image: 'public.ecr.aws/j0o6a0a3/cos/backend:latest'
+          Image: public.ecr.aws/j0o6a0a3/cos/backend:latest
           PortMappings:
             - ContainerPort: 8000
               Protocol: tcp
           Essential: true
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "curl -f http://localhost:8000/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 60
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -769,6 +1215,12 @@ Resources:
       TaskDefinition: !Ref TaskDefinition
       LaunchType: FARGATE
       DesiredCount: 1
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
       NetworkConfiguration:
         AwsvpcConfiguration:
           SecurityGroups:
@@ -924,6 +1376,9 @@ Resources:
   # ===== CODEPIPELINE =====
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
+    DependsOn: 
+      - BackendBuildProject
+      - FrontendBuildProject
     Properties:
       Name: !Sub '${AWS::StackName}-pipeline'
       RoleArn: !GetAtt CodePipelineServiceRole.Arn
@@ -958,6 +1413,37 @@ Resources:
                 ProjectName: !Ref FrontendBuildProject
               InputArtifacts:
                 - Name: SourceOutput
+              RunOrder: 1
+
+            - Name: BackendBuild
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref BackendBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BackendBuildOutput
+              RunOrder: 1
+
+        - Name: Deploy
+          Actions:
+            - Name: DeployBackend
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
+              Configuration:
+                ClusterName: !Ref ECSCluster
+                ServiceName: !Ref ECSService
+                FileName: imagedefinitions.json
+              InputArtifacts:
+                - Name: BackendBuildOutput
+              RunOrder: 1
 
       Tags:
         - Key: Component
@@ -1017,8 +1503,8 @@ Outputs:
 
   # ===== INFRASTRUCTURE OUTPUTS =====
   BackendImageURI:
-    Description: Backend Docker Image URI
-    Value: 'public.ecr.aws/j0o6a0a3/cos/backend:latest'
+    Description: Backend Docker Image URI (now from private ECR)
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${BackendECRRepository}:latest'
     Export:
       Name: !Sub '${AWS::StackName}-BackendImageURI'
 
@@ -1064,3 +1550,59 @@ Outputs:
     Value: anthropic.claude-3-haiku-20240307-v1:0
     Export:
       Name: !Sub '${AWS::StackName}-BedrockModelId'
+
+  # ===== BACKEND CI/CD OUTPUTS =====
+  BackendECRRepositoryURI:
+    Description: Backend ECR Repository URI
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${BackendECRRepository}'
+    Export:
+      Name: !Sub '${AWS::StackName}-BackendECRRepositoryURI'
+
+  BackendECRRepositoryName:
+    Description: Backend ECR Repository Name
+    Value: !Ref BackendECRRepository
+    Export:
+      Name: !Sub '${AWS::StackName}-BackendECRRepositoryName'
+
+  BackendBuildProjectName:
+    Description: Backend CodeBuild Project Name
+    Value: !Ref BackendBuildProject
+    Export:
+      Name: !Sub '${AWS::StackName}-BackendBuildProjectName'
+
+  PipelineNotificationTopicArn:
+    Description: SNS Topic ARN for pipeline notifications
+    Value: !Ref PipelineNotificationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-PipelineNotificationTopicArn'
+
+  PipelineNotificationTopicName:
+    Description: SNS Topic Name for pipeline notifications
+    Value: !GetAtt PipelineNotificationTopic.TopicName
+    Export:
+      Name: !Sub '${AWS::StackName}-PipelineNotificationTopicName'
+
+  # ===== VPC ENDPOINT OUTPUTS =====
+  ECRAPIVPCEndpointId:
+    Description: ECR API VPC Endpoint ID
+    Value: !Ref ECRAPIVPCEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ECRAPIVPCEndpointId'
+
+  ECRDockerVPCEndpointId:
+    Description: ECR Docker VPC Endpoint ID
+    Value: !Ref ECRDockerVPCEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ECRDockerVPCEndpointId'
+
+  S3VPCEndpointId:
+    Description: S3 VPC Endpoint ID
+    Value: !Ref S3VPCEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-S3VPCEndpointId'
+
+  VPCEndpointSecurityGroupId:
+    Description: VPC Endpoint Security Group ID
+    Value: !Ref VPCEndpointSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCEndpointSecurityGroupId'
