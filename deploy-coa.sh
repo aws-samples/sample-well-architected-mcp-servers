@@ -69,7 +69,7 @@ OPTIONS:
     -e, --environment ENV       Environment: dev, staging, prod (default: prod)
     -p, --profile PROFILE       AWS CLI profile name
     -s, --skip-prerequisites    Skip prerequisite checks
-    -c, --cleanup               Clean up existing SSM parameters and CloudFormation stacks, then exit
+    -c, --cleanup               Comprehensive cleanup: delete CloudFormation stack, S3 source buckets, and SSM parameters, then exit
     --resume-from-stage N       Resume deployment from stage N (1-7)
     --show-progress             Show current deployment progress and exit
     --reset-progress            Reset deployment progress tracking
@@ -81,15 +81,16 @@ DEPLOYMENT STAGES:
     3. Deploy MCP servers
     4. Deploy Bedrock agent
     5. Generate and upload remote IAM role template
-    6. Show deployment summary
-    7. Final completion
+    6. Upload backend source code to trigger CI/CD
+    7. Show deployment summary
+    8. Final completion
 
 EXAMPLES:
     $0                                          # Deploy with defaults
     $0 -p gameday -e dev                       # Deploy with gameday profile in dev environment
     $0 -n my-coa-stack -r us-west-2           # Deploy with custom stack name and region
     $0 -s                                      # Skip prerequisite checks
-    $0 -c                                      # Clean up existing SSM parameters and stacks only
+    $0 -c                                      # Comprehensive cleanup: delete stack, buckets, and parameters only
     $0 --resume-from-stage 3                   # Resume from stage 3 (Deploy MCP servers)
     $0 --show-progress                         # Show current progress
     $0 --reset-progress                        # Reset progress tracking
@@ -126,8 +127,8 @@ while [[ $# -gt 0 ]]; do
             ;;
         --resume-from-stage)
             RESUME_FROM_STAGE="$2"
-            if [[ ! "$RESUME_FROM_STAGE" =~ ^[1-7]$ ]]; then
-                print_error "Invalid stage number: $RESUME_FROM_STAGE. Must be between 1-7"
+            if [[ ! "$RESUME_FROM_STAGE" =~ ^[1-8]$ ]]; then
+                print_error "Invalid stage number: $RESUME_FROM_STAGE. Must be between 1-8"
                 exit 1
             fi
             shift 2
@@ -150,7 +151,7 @@ while [[ $# -gt 0 ]]; do
                 echo
                 echo "DEPLOYMENT STAGES:"
 
-                for i in {1..7}; do
+                for i in {1..8}; do
                     stage_name=""
                     case $i in
                         1) stage_name="Deploy chatbot stack and update Cognito callbacks" ;;
@@ -158,8 +159,9 @@ while [[ $# -gt 0 ]]; do
                         3) stage_name="Deploy MCP servers" ;;
                         4) stage_name="Deploy Bedrock agent" ;;
                         5) stage_name="Generate and upload remote IAM role template" ;;
-                        6) stage_name="Show deployment summary" ;;
-                        7) stage_name="Final completion" ;;
+                        6) stage_name="Upload backend source code to trigger CI/CD" ;;
+                        7) stage_name="Show deployment summary" ;;
+                        8) stage_name="Final completion" ;;
                     esac
 
                     if [[ $i -le $LAST_COMPLETED_STAGE ]]; then
@@ -170,7 +172,7 @@ while [[ $# -gt 0 ]]; do
                 done
 
                 echo
-                if [[ $LAST_COMPLETED_STAGE -lt 7 ]]; then
+                if [[ $LAST_COMPLETED_STAGE -lt 8 ]]; then
                     next_stage=$((LAST_COMPLETED_STAGE + 1))
                     echo "To resume from the next stage, run:"
                     echo "  $0 --resume-from-stage $next_stage"
@@ -255,7 +257,7 @@ show_deployment_progress() {
         echo
         echo "DEPLOYMENT STAGES:"
 
-        for i in {1..7}; do
+        for i in {1..8}; do
             local stage_name=""
             case $i in
                 1) stage_name="Deploy chatbot stack and update Cognito callbacks" ;;
@@ -263,8 +265,9 @@ show_deployment_progress() {
                 3) stage_name="Deploy MCP servers" ;;
                 4) stage_name="Deploy Bedrock agent" ;;
                 5) stage_name="Generate and upload remote IAM role template" ;;
-                6) stage_name="Show deployment summary" ;;
-                7) stage_name="Final completion" ;;
+                6) stage_name="Upload backend source code to trigger CI/CD" ;;
+                7) stage_name="Show deployment summary" ;;
+                8) stage_name="Final completion" ;;
             esac
 
             if [[ $i -le $LAST_COMPLETED_STAGE ]]; then
@@ -275,7 +278,7 @@ show_deployment_progress() {
         done
 
         echo
-        if [[ $LAST_COMPLETED_STAGE -lt 7 ]]; then
+        if [[ $LAST_COMPLETED_STAGE -lt 8 ]]; then
             local next_stage=$((LAST_COMPLETED_STAGE + 1))
             echo "To resume from the next stage, run:"
             echo "  $0 --resume-from-stage $next_stage"
@@ -599,6 +602,138 @@ check_existing_ssm_parameters() {
         print_warning "Continuing with deployment despite conflicts..."
     else
         print_success "No conflicting SSM parameters or stacks found"
+    fi
+}
+
+# Function to clean up S3 source buckets
+cleanup_s3_source_buckets() {
+    print_status "Cleaning up S3 source buckets..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    local buckets_deleted=0
+    local buckets_failed=0
+    
+    # Calculate expected bucket name for the current stack
+    local account_id
+    if account_id=$($aws_cmd sts get-caller-identity --query Account --output text 2>/dev/null); then
+        local expected_bucket="${STACK_NAME}-source-${account_id}-${REGION}"
+        
+        print_status "Looking for source bucket: $expected_bucket"
+        
+        # Check if the bucket exists
+        if $aws_cmd s3api head-bucket --bucket "$expected_bucket" --region $REGION >/dev/null 2>&1; then
+            print_status "Found source bucket: $expected_bucket"
+            
+            # First, empty the bucket (delete all objects)
+            print_status "Emptying bucket contents..."
+            if $aws_cmd s3 rm "s3://$expected_bucket" --recursive --region $REGION >/dev/null 2>&1; then
+                print_success "Bucket contents deleted"
+            else
+                print_warning "Failed to delete some bucket contents"
+            fi
+            
+            # Then delete the bucket
+            if $aws_cmd s3api delete-bucket --bucket "$expected_bucket" --region $REGION >/dev/null 2>&1; then
+                print_success "Deleted source bucket: $expected_bucket"
+                ((buckets_deleted++))
+            else
+                print_warning "Failed to delete source bucket: $expected_bucket"
+                ((buckets_failed++))
+            fi
+        else
+            print_status "Source bucket not found (may have been deleted already): $expected_bucket"
+        fi
+    else
+        print_error "Failed to get AWS account ID"
+        return 1
+    fi
+    
+    # Also look for any orphaned buckets with similar patterns
+    print_status "Checking for orphaned source buckets..."
+    local all_buckets
+    if all_buckets=$($aws_cmd s3api list-buckets --query "Buckets[?contains(Name, '${STACK_NAME}-source-')].Name" --output text --region $REGION 2>/dev/null); then
+        if [[ -n "$all_buckets" && "$all_buckets" != "" ]]; then
+            for bucket in $all_buckets; do
+                if [[ "$bucket" != "$expected_bucket" ]]; then
+                    print_warning "Found orphaned source bucket: $bucket"
+                    print_status "To manually delete: $aws_cmd s3 rb s3://$bucket --force --region $REGION"
+                fi
+            done
+        fi
+    fi
+    
+    # Summary
+    if [[ $buckets_deleted -eq 0 && $buckets_failed -eq 0 ]]; then
+        print_status "No S3 source buckets found to clean up"
+    else
+        print_success "Cleaned up $buckets_deleted S3 source buckets"
+        if [[ $buckets_failed -gt 0 ]]; then
+            print_warning "$buckets_failed source buckets could not be deleted"
+        fi
+    fi
+}
+
+# Function to clean up CloudFormation stack
+cleanup_cloudformation_stack() {
+    print_status "Cleaning up CloudFormation stack..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    # Check if stack exists
+    if $aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION >/dev/null 2>&1; then
+        print_status "Found CloudFormation stack: $STACK_NAME"
+        
+        # Get stack status
+        local stack_status
+        if stack_status=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null); then
+            print_status "Current stack status: $stack_status"
+            
+            case $stack_status in
+                "DELETE_IN_PROGRESS")
+                    print_status "Stack is already being deleted, waiting for completion..."
+                    if $aws_cmd cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $REGION; then
+                        print_success "Stack deletion completed successfully"
+                    else
+                        print_warning "Stack deletion may have failed or timed out"
+                    fi
+                    ;;
+                "DELETE_FAILED")
+                    print_warning "Stack is in DELETE_FAILED state, attempting to delete again..."
+                    if $aws_cmd cloudformation delete-stack --stack-name $STACK_NAME --region $REGION; then
+                        print_status "Stack deletion re-initiated, waiting for completion..."
+                        if $aws_cmd cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $REGION; then
+                            print_success "Stack deletion completed successfully"
+                        else
+                            print_warning "Stack deletion may have failed or timed out"
+                        fi
+                    else
+                        print_error "Failed to initiate stack deletion"
+                    fi
+                    ;;
+                *)
+                    print_status "Initiating stack deletion..."
+                    if $aws_cmd cloudformation delete-stack --stack-name $STACK_NAME --region $REGION; then
+                        print_status "Stack deletion initiated, waiting for completion..."
+                        if $aws_cmd cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $REGION; then
+                            print_success "Stack deletion completed successfully"
+                        else
+                            print_warning "Stack deletion may have failed or timed out"
+                        fi
+                    else
+                        print_error "Failed to initiate stack deletion"
+                    fi
+                    ;;
+            esac
+        fi
+    else
+        print_status "CloudFormation stack not found: $STACK_NAME"
     fi
 }
 
@@ -1093,6 +1228,110 @@ update_index_html_template_url() {
     fi
 }
 
+# Function to upload backend source code and trigger CI/CD pipeline
+upload_backend_source_code() {
+    print_status "=== STAGE 3: Application Code Deployment ==="
+    print_status "Packaging and uploading backend source code..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    # Calculate SourceBucket name (same pattern as in deploy_chatbot_stack.py)
+    local account_id
+    if account_id=$($aws_cmd sts get-caller-identity --query Account --output text 2>/dev/null); then
+        local source_bucket="${STACK_NAME}-source-${account_id}-${REGION}"
+        print_status "Using SourceBucket: $source_bucket"
+        
+        # Create source code archive
+        print_status "Creating source code archive..."
+        local temp_dir=$(mktemp -d)
+        local source_zip="$temp_dir/source.zip"
+        
+        # Create zip from the cloud-optimization-web-interfaces directory
+        if [[ -d "cloud-optimization-web-interfaces" ]]; then
+            cd cloud-optimization-web-interfaces/
+            if zip -r "$source_zip" . -x "*.git*" "*__pycache__*" "*.pyc" "*.DS_Store" "node_modules/*" >/dev/null 2>&1; then
+                cd ..
+                print_success "Source code archive created: $(du -h "$source_zip" | cut -f1)"
+                
+                # Upload to S3 to trigger CI/CD pipeline
+                print_status "Uploading source code to trigger CI/CD pipeline..."
+                if $aws_cmd s3 cp "$source_zip" "s3://$source_bucket/source.zip" --region $REGION; then
+                        print_success "Backend source code uploaded successfully"
+                        print_status "CI/CD pipeline should be triggered automatically"
+                        
+                        # Monitor pipeline execution
+                        monitor_pipeline_execution
+                        
+                        # Cleanup temp file
+                        rm -rf "$temp_dir"
+                    return 0
+                else
+                    print_error "Failed to upload backend source code to S3"
+                    rm -rf "$temp_dir"
+                    return 1
+                fi
+            else
+                cd ..
+                print_error "Failed to create source code archive"
+                rm -rf "$temp_dir"
+                return 1
+            fi
+        else
+            print_error "cloud-optimization-web-interfaces directory not found"
+            rm -rf "$temp_dir"
+            return 1
+        fi
+    else
+        print_error "Failed to get AWS account ID"
+        return 1
+    fi
+}
+
+# Function to monitor CodePipeline execution
+monitor_pipeline_execution() {
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    local pipeline_name="$STACK_NAME-pipeline"
+    print_status "Monitoring CodePipeline execution: $pipeline_name"
+    
+    # Wait for pipeline to start executing (up to 2 minutes)
+    local timeout=120
+    local elapsed=0
+    local pipeline_found=false
+    
+    while [[ $elapsed -lt $timeout ]]; do
+        if $aws_cmd codepipeline get-pipeline-state --name "$pipeline_name" --region $REGION >/dev/null 2>&1; then
+            pipeline_found=true
+            print_success "CodePipeline found and monitoring execution"
+            
+            # Get current execution status
+            local pipeline_state
+            if pipeline_state=$($aws_cmd codepipeline get-pipeline-state --name "$pipeline_name" --region $REGION --query 'stageStates[0].latestExecution.status' --output text 2>/dev/null); then
+                if [[ "$pipeline_state" != "None" && "$pipeline_state" != "" ]]; then
+                    print_status "Pipeline execution started with status: $pipeline_state"
+                    break
+                fi
+            fi
+        fi
+        sleep 10
+        elapsed=$((elapsed + 10))
+        print_status "Waiting for pipeline to start... ($elapsed/${timeout}s)"
+    done
+    
+    if [[ "$pipeline_found" == "true" ]]; then
+        print_success "CodePipeline execution initiated successfully"
+        print_status "Monitor progress in AWS Console: https://console.aws.amazon.com/codesuite/codepipeline/pipelines/$pipeline_name/view"
+    else
+        print_warning "CodePipeline may not have started yet - check AWS Console manually"
+    fi
+}
+
 # Function to display deployment summary
 show_deployment_summary() {
     print_status "Retrieving deployment information..."
@@ -1130,7 +1369,10 @@ show_deployment_summary() {
         echo "================================================================================"
         echo "1. 🌐 Access your application via the CloudFront URL above"
         echo "2. 👤 Configure users in the Cognito User Pool"
-        echo "3. 🔧 Upload source code to trigger CI/CD pipeline"
+        echo "3. 📦 Monitor Backend CI/CD Pipeline:"
+        echo "   - CodePipeline: Source → Build → Deploy stages"
+        echo "   - Backend will be built from Docker and deployed to ECS automatically"
+        echo "   - Check AWS Console for pipeline execution status"
         echo "4. 📊 Monitor the deployment in AWS Console"
         echo "5. 🤖 Test the Bedrock agent functionality"
         echo "6. 🔐 Deploy the remote IAM role in target AWS accounts using the one-click link"
@@ -1221,6 +1463,9 @@ stage_1_deploy_chatbot() {
         print_warning "Failed to deploy frontend files - you may need to deploy them manually"
     fi
 
+    # Note: Backend source code upload will be handled in a later stage
+    # after MCP servers and Bedrock agents are deployed
+
     # Create demo user with correct credentials
     create_demo_user
 
@@ -1256,14 +1501,29 @@ stage_5_generate_remote_role() {
     fi
 }
 
-# Stage 6: Show deployment summary
-stage_6_show_summary() {
+# Stage 6: Upload backend source code to trigger CI/CD
+stage_6_upload_backend_code() {
+    print_status "=== STAGE 6: Backend Code Deployment ==="
+    if upload_backend_source_code; then
+        print_success "Backend CI/CD pipeline initiated successfully"
+        print_status "The backend will be automatically built and deployed via CodePipeline"
+        return 0
+    else
+        print_warning "Backend source code upload failed - you may need to upload manually"
+        print_status "Manual upload: Upload cloud-optimization-web-interfaces/ as source.zip to the SourceBucket"
+        print_status "This will not prevent the rest of the deployment from continuing"
+        return 0  # Don't fail the deployment for this
+    fi
+}
+
+# Stage 7: Show deployment summary
+stage_7_show_summary() {
     show_deployment_summary
     return 0
 }
 
-# Stage 7: Final completion
-stage_7_final_completion() {
+# Stage 8: Final completion
+stage_8_final_completion() {
     print_success "Cloud Optimization Assistant deployment completed successfully! 🎉"
     return 0
 }
@@ -1277,10 +1537,45 @@ main() {
 
     # Handle cleanup-only mode
     if [[ "$CLEANUP_ONLY" == "true" ]]; then
-        print_status "Running in cleanup mode..."
+        print_status "Running in comprehensive cleanup mode..."
         check_aws_credentials
+        
+        echo "================================================================================"
+        echo "                           COMPREHENSIVE CLEANUP"
+        echo "================================================================================"
+        echo "Stack Name:   $STACK_NAME"
+        echo "Region:       $REGION"
+        echo "Environment:  $ENVIRONMENT"
+        if [[ -n "$PROFILE" ]]; then
+            echo "AWS Profile:  $PROFILE"
+        fi
+        echo
+        
+        # Confirm cleanup for production
+        if [[ "$ENVIRONMENT" == "prod" ]]; then
+            print_warning "You are cleaning up PRODUCTION environment resources"
+            read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_status "Cleanup cancelled"
+                exit 0
+            fi
+        fi
+        
+        # Step 1: Clean up CloudFormation stack (this should clean up most resources)
+        cleanup_cloudformation_stack
+        echo
+        
+        # Step 2: Clean up S3 source buckets (created outside CloudFormation)
+        cleanup_s3_source_buckets
+        echo
+        
+        # Step 3: Clean up SSM parameters (may be left over from previous deployments)
         cleanup_existing_parameters
-        print_success "Cleanup completed!"
+        
+        echo
+        print_success "Comprehensive cleanup completed!"
+        echo "================================================================================"
         exit 0
     fi
 
@@ -1364,11 +1659,15 @@ main() {
     fi
 
     if [[ $start_stage -le 6 ]]; then
-        execute_stage 6 "Show deployment summary" "stage_6_show_summary"
+        execute_stage 6 "Upload backend source code to trigger CI/CD" "stage_6_upload_backend_code"
     fi
 
     if [[ $start_stage -le 7 ]]; then
-        execute_stage 7 "Final completion" "stage_7_final_completion"
+        execute_stage 7 "Show deployment summary" "stage_7_show_summary"
+    fi
+
+    if [[ $start_stage -le 8 ]]; then
+        execute_stage 8 "Final completion" "stage_8_final_completion"
     fi
 
     # Clean up progress file on successful completion

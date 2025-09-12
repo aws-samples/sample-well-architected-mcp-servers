@@ -65,13 +65,14 @@ The Cloud Optimization Assistant consists of the following key components:
 ## 📁 **Directory Structure**
 
 ### 🌐 Cloud Optimization Web Interfaces
-Interactive web applications for cloud optimization assessments.
+Interactive web applications for cloud optimization assessments with automated CI/CD pipeline.
 
 ```
 cloud-optimization-web-interfaces/
 └── cloud-optimization-web-interface/       # Main web interface
-    ├── backend/                            # FastAPI backend
+    ├── backend/                            # FastAPI backend with health checks
     ├── frontend/                           # HTML/JS frontend
+    ├── Dockerfile                          # Production-ready multi-stage container
     └── tests/                              # Integration tests
 ```
 
@@ -80,6 +81,9 @@ cloud-optimization-web-interfaces/
 - WebSocket communication for instant responses
 - Multi-pillar optimization assessments
 - Interactive dashboards and reports
+- **🚀 Automated CI/CD Pipeline**: Complete backend deployment automation
+- **🐳 Containerized Backend**: Production-ready Docker containers with health checks
+- **🔒 Security-First**: VPC endpoints, least-privilege IAM, vulnerability scanning
 
 ### 🤖 Bedrock Agents
 Specialized AI agents for different aspects of cloud optimization.
@@ -112,15 +116,19 @@ mcp-servers/
 - **Lens Best Practices Server**: *Planned* - Serverless, SaaS, IoT, ML lens tools
 
 ### 🚀 Deployment Scripts
-Automated deployment scripts for all components.
+Automated deployment scripts for all components with CI/CD pipeline support.
 
 ```
 deployment-scripts/
+├── buildspecs/                              # External BuildSpec files for CI/CD
+│   ├── frontend-buildspec.yml               # Frontend build configuration
+│   └── backend-buildspec.yml                # Backend Docker build configuration
 ├── components/                              # Component-specific deployment scripts
 │   ├── deploy_component_wa_security_mcp.py  # WA Security MCP Server
 │   ├── deploy_component_chatbot_webapp.py   # Chatbot Web Application
 │   ├── deploy_component_aws_api_mcp_server.py # AWS API MCP Server
 │   └── deploy_shared_cognito.py             # Shared Cognito infrastructure
+├── cloud-optimization-assistant-0.1.0.yaml # Enhanced CloudFormation with CI/CD
 ├── deploy_chatbot_stack.py                  # Main chatbot stack deployment
 ├── generate_cognito_ssm_parameters.py       # Cognito configuration management
 ├── generate_remote_role_stack.py            # Cross-account role template generation
@@ -149,6 +157,64 @@ Includes detailed guides for:
 | ⚡ **Performance Efficiency** | 🔄 **Planned** | Performance tools integration |
 | 💰 **Cost Optimization** | 🔄 **Planned** | Cost Agent + Cost analysis tools |
 | 🔧 **Operational Excellence** | 🔄 **Planned** | Operations tools integration |
+
+## 🚀 **Backend CI/CD Pipeline**
+
+The Cloud Optimization Assistant now includes a complete automated CI/CD pipeline for backend deployment, transforming the static public ECR image deployment into a fully automated containerized deployment system.
+
+### **Pipeline Architecture**
+
+```
+S3 Source Upload → EventBridge → CodePipeline → CodeBuild → ECR → ECS → ALB
+```
+
+### **Key Features**
+
+- **🔄 Automated Triggers**: S3 upload automatically triggers the entire pipeline
+- **🐳 Docker Containerization**: Multi-stage builds with production optimizations
+- **🔒 Security First**: VPC endpoints, vulnerability scanning, least-privilege IAM
+- **📊 Health Monitoring**: FastAPI `/health` endpoint with dependency validation
+- **🛡️ Circuit Breaker**: Automatic rollback on deployment failures
+- **📋 External BuildSpecs**: Maintainable build configurations in separate files
+
+### **Pipeline Stages**
+
+1. **Source Stage**: S3 event notification triggers CodePipeline
+2. **Build Stage**: Parallel frontend and backend builds
+   - Frontend: S3 deployment with CloudFront invalidation
+   - Backend: Docker build, test, and ECR push
+3. **Deploy Stage**: ECS service update with rolling deployment
+
+### **Security Enhancements**
+
+- **VPC Endpoints**: ECR and S3 traffic routed through private endpoints
+- **Vulnerability Scanning**: Automatic ECR image scanning on push
+- **Least Privilege IAM**: Specific resource ARNs instead of wildcard permissions
+- **Parameter Validation**: S3 bucket existence validation before deployment
+- **Health Checks**: Container health validation with automatic rollback
+
+### **Deployment Process**
+
+The CI/CD pipeline follows a 3-stage approach:
+
+1. **Stage 1**: S3 bucket setup with EventBridge configuration
+2. **Stage 2**: CloudFormation infrastructure deployment
+3. **Stage 3**: Source code upload triggers automated pipeline
+
+```bash
+# Deploy infrastructure with CI/CD pipeline
+./deploy-coa.sh
+
+# Upload backend code to trigger pipeline
+aws s3 cp backend.zip s3://your-source-bucket/backend.zip
+```
+
+### **Monitoring & Notifications**
+
+- **CloudWatch Alarms**: Pipeline failures, ECS deployment issues, ECR vulnerabilities
+- **SNS Notifications**: Structured notifications for pipeline state changes
+- **EventBridge Rules**: Automated pipeline triggering and monitoring
+- **Health Endpoints**: Real-time application health monitoring
 
 ## 🚀 **Quick Start**
 
@@ -407,14 +473,17 @@ The deployment creates several important files:
 ## 🔧 **Technology Stack**
 
 - **Frontend**: HTML5, JavaScript, WebSocket
-- **Backend**: FastAPI, Python 3.8+
+- **Backend**: FastAPI, Python 3.11+, Docker containers
 - **AI/ML**: Amazon Bedrock (Claude 3 Haiku, Claude 3.5 Sonnet)
 - **Integration**: Model Context Protocol (MCP)
 - **Deployment**: AWS CloudFormation, Bedrock Agents
+- **CI/CD Pipeline**: CodePipeline, CodeBuild, ECR, ECS
+- **Container Orchestration**: Amazon ECS with Application Load Balancer
 - **Authentication**: AWS Cognito (centralized user pool)
 - **Configuration**: AWS Systems Manager Parameter Store
 - **Cross-Account Access**: IAM roles with read-only permissions
-- **Infrastructure**: S3, CloudFront, Lambda, API Gateway
+- **Infrastructure**: S3, CloudFront, Lambda, API Gateway, VPC Endpoints
+- **Security**: ECR vulnerability scanning, VPC endpoints, least-privilege IAM
 
 ## 🛠️ **Troubleshooting**
 
@@ -490,6 +559,16 @@ Deploy to different environments with appropriate configurations:
 
 ## 📋 **Latest Features & Updates**
 
+### 🚀 **NEW: Backend CI/CD Pipeline** 
+- **Automated Container Deployment**: Complete S3 → CodePipeline → CodeBuild → ECR → ECS flow
+- **Production-Ready Containers**: Multi-stage Docker builds with security best practices
+- **Health Check Integration**: FastAPI `/health` endpoint with dependency validation
+- **VPC Security**: ECR and S3 access through VPC endpoints for network isolation
+- **Vulnerability Scanning**: Automatic ECR image scanning with lifecycle policies
+- **Circuit Breaker Deployment**: ECS deployment with automatic rollback on health check failures
+- **Least-Privilege IAM**: Specific resource ARNs instead of wildcard permissions
+- **External BuildSpecs**: Maintainable build configurations in separate files
+
 ### Enhanced Deployment Automation
 - **🚀 One-Command Deployment**: Complete platform deployment with `./deploy-coa.sh`
 - **🔄 Intelligent Resume**: Resume from any failed stage without starting over
@@ -518,6 +597,8 @@ Deploy to different environments with appropriate configurations:
 - [x] Cross-account role deployment
 - [x] Resume-capable deployment system
 - [x] Centralized authentication and configuration
+- [x] **Backend CI/CD Pipeline**: Complete automated deployment with Docker containers
+- [x] **Production Security**: VPC endpoints, vulnerability scanning, health checks
 
 ### Phase 2: Enhanced Security & Operations 🔄
 - [x] Enhanced cross-account capabilities

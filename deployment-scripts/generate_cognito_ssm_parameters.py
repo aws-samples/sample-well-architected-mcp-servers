@@ -39,13 +39,23 @@ logger = logging.getLogger(__name__)
 class CognitoSSMParameterGenerator:
     """Generates SSM parameters from CloudFormation stack Cognito resources"""
 
-    def __init__(self, region: str = "us-east-1"):
+    def __init__(self, region: str = "us-east-1", profile: str = None):
         """Initialize the generator with AWS clients"""
         self.region = region
+        self.profile = profile
         try:
-            self.cf_client = boto3.client("cloudformation", region_name=region)
-            self.ssm_client = boto3.client("ssm", region_name=region)
-            self.cognito_client = boto3.client("cognito-idp", region_name=region)
+            # Create session with profile if specified
+            if profile:
+                session = boto3.Session(profile_name=profile)
+                logger.info(f"Using AWS profile: {profile}")
+            else:
+                session = boto3.Session()
+                logger.info("Using default AWS credentials")
+
+            # Initialize AWS clients with session
+            self.cf_client = session.client("cloudformation", region_name=region)
+            self.ssm_client = session.client("ssm", region_name=region)
+            self.cognito_client = session.client("cognito-idp", region_name=region)
             logger.info(f"Initialized AWS clients for region: {region}")
         except NoCredentialsError:
             logger.error(
@@ -391,6 +401,12 @@ Examples:
     )
 
     parser.add_argument(
+        "--profile",
+        type=str,
+        help="AWS CLI profile name",
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be created without actually creating parameters",
@@ -408,7 +424,7 @@ Examples:
         logging.getLogger().setLevel(logging.DEBUG)
 
     try:
-        generator = CognitoSSMParameterGenerator(region=args.region)
+        generator = CognitoSSMParameterGenerator(region=args.region, profile=args.profile)
 
         if args.validate:
             logger.info("🔍 Validating existing SSM parameters...")
