@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from models.chat_models import ChatMessage, ChatSession, ToolExecution
 from pydantic import BaseModel
@@ -277,33 +278,123 @@ async def get_current_user(
         )
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    services_status = {
-        "orchestrator": await orchestrator_service.health_check(),
-        "mcp": await mcp_service.health_check(),
-        "auth": "healthy",
-    }
-
-    # Add Enhanced Security Agent info if using it
-    if (
-        use_enhanced_agent
-        and bedrock_service
-        and hasattr(bedrock_service, "get_agent_info")
-    ):
-        agent_info = bedrock_service.get_agent_info()
-        services_status["enhanced_agent"] = (
-            "configured" if agent_info["configured"] else "not_configured"
+    """
+    Health check endpoint for container and load balancer health monitoring.
+    Returns 200 OK when service is healthy, 503 Service Unavailable otherwise.
+    """
+    try:
+        # Basic service health checks
+        health_status = {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "service": "cloud-optimization-backend",
+            "version": "1.0.0",
+            "checks": {
+                "dependencies": "healthy",
+                "environment": "healthy",
+                "services": "healthy"
+            }
+        }
+        
+        # Environment variable validation
+        required_env_vars = ["USER_POOL_ID", "WEB_APP_CLIENT_ID", "AWS_DEFAULT_REGION"]
+        missing_vars = []
+        
+        for env_var in required_env_vars:
+            # Check both environment variables and config service
+            env_value = os.getenv(env_var)
+            config_value = config_service.get_config_value(env_var) if config_service else None
+            
+            if not env_value and not config_value:
+                missing_vars.append(env_var)
+        
+        if missing_vars:
+            health_status["status"] = "unhealthy"
+            health_status["checks"]["environment"] = f"Missing required environment variables: {', '.join(missing_vars)}"
+            return JSONResponse(
+                status_code=503,
+                content=health_status
+            )
+        
+        # Service dependency checks
+        try:
+            services_status = {
+                "auth": "healthy",
+            }
+            
+            # Check orchestrator service
+            try:
+                services_status["orchestrator"] = await orchestrator_service.health_check()
+            except Exception as e:
+                logger.warning(f"Orchestrator health check failed: {e}")
+                services_status["orchestrator"] = "unhealthy"
+            
+            # Check MCP service
+            try:
+                services_status["mcp"] = await mcp_service.health_check()
+            except Exception as e:
+                logger.warning(f"MCP health check failed: {e}")
+                services_status["mcp"] = "unhealthy"
+            
+            # Add Enhanced Security Agent info if using it
+            if (
+                use_enhanced_agent
+                and bedrock_service
+                and hasattr(bedrock_service, "get_agent_info")
+            ):
+                try:
+                    agent_info = bedrock_service.get_agent_info()
+                    services_status["enhanced_agent"] = (
+                        "configured" if agent_info["configured"] else "not_configured"
+                    )
+                except Exception as e:
+                    logger.warning(f"Enhanced agent health check failed: {e}")
+                    services_status["enhanced_agent"] = "unhealthy"
+            
+            # Check if any critical services are unhealthy
+            unhealthy_services = [k for k, v in services_status.items() if v not in ["healthy", "degraded", "configured"]]
+            if unhealthy_services:
+                health_status["status"] = "unhealthy"
+                health_status["checks"]["services"] = f"Unhealthy services: {', '.join(unhealthy_services)}"
+                health_status["services"] = services_status
+                return JSONResponse(
+                    status_code=503,
+                    content=health_status
+                )
+            
+            health_status["services"] = services_status
+            
+        except Exception as service_error:
+            logger.error(f"Service health check failed: {str(service_error)}")
+            health_status["status"] = "unhealthy"
+            health_status["checks"]["services"] = f"Service check error: {str(service_error)}"
+            return JSONResponse(
+                status_code=503,
+                content=health_status
+            )
+        
+        # All checks passed
+        return JSONResponse(status_code=200, content=health_status)
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "timestamp": datetime.utcnow().isoformat(),
+                "service": "cloud-optimization-backend",
+                "version": "1.0.0",
+                "error": str(e),
+                "checks": {
+                    "dependencies": "error",
+                    "environment": "error", 
+                    "services": "error"
+                }
+            }
         )
-
-    return HealthResponse(
-        status="healthy"
-        if all(s in ["healthy", "degraded"] for s in services_status.values())
-        else "unhealthy",
-        services=services_status,
-        timestamp=datetime.utcnow(),
-    )
 
 
 @app.post("/api/chat", response_model=ChatResponse)

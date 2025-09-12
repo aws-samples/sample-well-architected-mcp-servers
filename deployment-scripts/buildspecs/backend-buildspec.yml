@@ -1,0 +1,29 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+      - echo "Building image with tag $IMAGE_TAG"
+  build:
+    commands:
+      - echo Build started on `date`
+      - cd cloud-optimization-web-interfaces/cloud-optimization-web-interface
+      - echo "Building Docker image..."
+      - docker build -t $ECR_REPOSITORY_URI:latest -t $ECR_REPOSITORY_URI:$IMAGE_TAG -f Dockerfile .
+      - echo "Testing container startup..."
+      - docker run --rm --name test-container $ECR_REPOSITORY_URI:latest python -c "import fastapi; print('FastAPI import successful')"
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo "Pushing images to ECR..."
+      - docker push $ECR_REPOSITORY_URI:latest
+      - docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
+      - echo "Creating imagedefinitions.json..."
+      - printf '[{"name":"backend","imageUri":"%s"}]' $ECR_REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - cat imagedefinitions.json
+artifacts:
+  files:
+    - imagedefinitions.json
