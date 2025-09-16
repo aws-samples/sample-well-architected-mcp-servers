@@ -20,7 +20,7 @@
 """
 Cloud Optimization Assistant Chatbot Stack Deployment Script
 Deploys the complete infrastructure with CI/CD pipeline and frontend in a single stack
-Uses the cloud-optimization-assistant-0.1.0.yaml template
+Supports both cloud-optimization-assistant-0.1.0.yaml and cloud-optimization-assistant-0.1.1.yaml templates
 """
 
 import argparse
@@ -46,6 +46,7 @@ class ChatbotStackDeployer:
         region: str = "us-east-1",
         environment: str = "prod",
         profile: Optional[str] = None,
+        template_version: str = "0.1.2",
     ):
         """
         Initialize the chatbot stack deployer
@@ -55,9 +56,11 @@ class ChatbotStackDeployer:
             region: AWS region
             environment: Environment (dev, staging, prod)
             profile: AWS CLI profile name (optional)
+            template_version: CloudFormation template version (0.1.0 or 0.1.2)
         """
         self.stack_name = stack_name
         self.region = region
+        self.template_version = template_version
         self.environment = environment
         self.profile = profile
 
@@ -166,7 +169,7 @@ class ChatbotStackDeployer:
     def load_template(self) -> str:
         """Load the chatbot CloudFormation template"""
         template_path = (
-            Path(__file__).parent / "cloud-optimization-assistant-0.1.0.yaml"
+            Path(__file__).parent / f"cloud-optimization-assistant-{self.template_version}.yaml"
         )
 
         if not template_path.exists():
@@ -359,6 +362,12 @@ def main():
         help="Environment name",
     )
     parser.add_argument("--profile", help="AWS CLI profile name")
+    parser.add_argument(
+        "--template-version",
+        default="0.1.2",
+        choices=["0.1.0", "0.1.2"],
+        help="CloudFormation template version to use",
+    )
 
     args = parser.parse_args()
 
@@ -368,6 +377,7 @@ def main():
             region=args.region,
             environment=args.environment,
             profile=args.profile,
+            template_version=args.template_version,
         )
 
         result = deployer.deploy()

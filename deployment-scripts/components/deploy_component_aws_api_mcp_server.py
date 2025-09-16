@@ -19,7 +19,7 @@
 
 """
 Deploy AWS API MCP Server to Amazon Bedrock AgentCore Runtime
-REFACTORED VERSION - Uses shared Cognito user pool and stores output in SSM
+REFACTORED VERSION - Uses shared Cognito user pool, BedrockAgentCoreRuntimeRole from COA stack, and stores output in SSM
 """
 
 import json
@@ -33,120 +33,88 @@ import boto3
 from bedrock_agentcore_starter_toolkit import Runtime
 from boto3.session import Session
 
-# Import our shared Cognito utilities
-from cognito_utils import get_shared_cognito_client
+
+
+build_dir = "build/aws-api-mcp-deploy"
+
+def get_coa_stack_role_arn(region, stack_name_prefix="cloud-optimization-assistant"):
+    """Get the BedrockAgentCoreRuntimeRole ARN from the COA CloudFormation stack"""
+    print(f"🔍 Looking for BedrockAgentCoreRuntimeRole in COA stack...")
+    
+    cf_client = boto3.client("cloudformation", region_name=region)
+    
+    try:
+        # List stacks to find the COA stack
+        paginator = cf_client.get_paginator('list_stacks')
+        
+        coa_stack_name = None
+        for page in paginator.paginate(StackStatusFilter=['CREATE_COMPLETE', 'UPDATE_COMPLETE']):
+            for stack in page['StackSummaries']:
+                if stack['StackName'].startswith(stack_name_prefix):
+                    coa_stack_name = stack['StackName']
+                    break
+            if coa_stack_name:
+                break
+        
+        if not coa_stack_name:
+            raise Exception(f"No CloudFormation stack found with prefix '{stack_name_prefix}'")
+        
+        print(f"✓ Found COA stack: {coa_stack_name}")
+        
+        # Get stack resources to find the BedrockAgentCoreRuntimeRole
+        paginator = cf_client.get_paginator('list_stack_resources')
+        
+        for page in paginator.paginate(StackName=coa_stack_name):
+            for resource in page['StackResourceSummaries']:
+                if resource['LogicalResourceId'] == 'BedrockAgentCoreRuntimeRole':
+                    role_arn = f"arn:aws:iam::{boto3.client('sts').get_caller_identity()['Account']}:role/{resource['PhysicalResourceId']}"
+                    print(f"✓ Found BedrockAgentCoreRuntimeRole: {role_arn}")
+                    return role_arn
+        
+        raise Exception("BedrockAgentCoreRuntimeRole not found in COA stack. Make sure you're using CloudFormation template v0.1.1 or later.")
+        
+    except Exception as e:
+        print(f"❌ Failed to get BedrockAgentCoreRuntimeRole from COA stack: {e}")
+        raise
 
 
 def prepare_deployment_files():
     """Prepare the deployment files for the AWS API MCP Server"""
     print("Preparing deployment files...")
 
+    source_dir = Path("agents/strands-agents/aws-api-mcp-runtime")
+
     # Create deployment directory
-    deploy_dir = Path("aws-api-mcp-deploy")
+    deploy_dir = Path(build_dir)
     if deploy_dir.exists():
         shutil.rmtree(deploy_dir)
     deploy_dir.mkdir()
 
-    # Create AgentCore-compatible server entrypoint using the public package
-    server_py_content = '''#!/usr/bin/env python3
-"""
-Entrypoint for AWS API MCP Server - AgentCore Compatible
-Uses the official awslabs.aws-api-mcp-server package
-"""
-import os
-import sys
-import subprocess
-from pathlib import Path
-
-# Set default AWS region if not set
-if not os.environ.get("AWS_REGION"):
-    os.environ["AWS_REGION"] = "us-east-1"
-
-def main():
-    """Main entrypoint that runs the official AWS API MCP server"""
-    try:
-        # Run the official AWS API MCP server using uvx
-        cmd = ["uvx", "awslabs.aws-api-mcp-server@latest"]
-
-        # Set environment variables for the server
-        env = os.environ.copy()
-        env.update({
-            "AWS_REGION": os.environ.get("AWS_REGION", "us-east-1"),
-            "MCP_LOG_LEVEL": os.environ.get("MCP_LOG_LEVEL", "INFO")
-        })
-
-        # Execute the server
-        subprocess.run(cmd, env=env, check=True)
-
-    except subprocess.CalledProcessError as e:
-        print(f"Failed to start AWS API MCP server: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-'''
-
-    with open(deploy_dir / "server.py", "w") as f:
-        f.write(server_py_content)
-
-    # Create requirements.txt with minimal dependencies
-    requirements_content = """mcp[server]>=1.7.1
-boto3>=1.28.0
-"""
-
-    with open(deploy_dir / "requirements.txt", "w") as f:
-        f.write(requirements_content)
-
-    # Create a simple Dockerfile for uvx compatibility
-    dockerfile_content = """FROM python:3.11-slim
-
-# Install uv and uvx
-RUN pip install uv
-
-# Set working directory
-WORKDIR /app
-
-# Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-# Copy server script
-COPY server.py .
-
-# Make server script executable
-RUN chmod +x server.py
-
-# Expose port for MCP server
-EXPOSE 8000
-
-# Run the server
-CMD ["python", "server.py"]
-"""
-
-    with open(deploy_dir / "Dockerfile", "w") as f:
-        f.write(dockerfile_content)
-
-    print(f"✓ Deployment files prepared in {deploy_dir}")
+    # Copy server.py to deployment directory
+    shutil.copy(source_dir / "server.py", deploy_dir)
+    # Copy requirements.txt to deployment directory
+    shutil.copy(source_dir / "requirements.txt", deploy_dir)
+    # Create empty __init__.py in deployment directory
+    shutil.copy(source_dir / "Dockerfile", deploy_dir)
+    (deploy_dir / "__init__.py").touch()
+    print("✓ Deployment files prepared")
     return True
 
 
 def main():
     print("🚀 Starting AWS API MCP Server Deployment")
-    print("Using Shared Cognito User Pool")
-    print("=" * 60)
+    print("Using Shared Cognito User Pool and COA Stack BedrockAgentCoreRuntimeRole")
+    print("=" * 80)
 
     # Prepare deployment files
     if not prepare_deployment_files():
         sys.exit(1)
 
     # Change to deployment directory
-    os.chdir("aws-api-mcp-deploy")
+    os.chdir(build_dir)
 
     # Check required files
-    required_files = ["server.py", "requirements.txt", "Dockerfile"]
+    required_files = ["server.py", "requirements.txt"]
     for file in required_files:
         if not os.path.exists(file):
             print(f"❌ Required file {file} not found")
@@ -158,28 +126,38 @@ def main():
     region = boto_session.region_name
     print(f"✓ Using AWS region: {region}")
 
-    # Get shared Cognito configuration from Parameter Store
-    print("\n📋 Getting shared Cognito configuration from Parameter Store...")
+    # Get BedrockAgentCoreRuntimeRole from COA stack
+    print("\n🔍 Getting BedrockAgentCoreRuntimeRole from COA stack...")
     try:
-        cognito_client = get_shared_cognito_client(
-            region=region, use_parameter_store=True
-        )
-
-        # Get authentication configuration for AgentCore
-        auth_config = cognito_client.get_auth_config_for_agentcore()
-
-        print("✓ Shared Cognito configuration retrieved from Parameter Store")
-        print(f"  User Pool ID: {cognito_client.get_user_pool_id()}")
-        print(f"  MCP Client ID: {cognito_client.get_mcp_server_client_id()}")
-
+        execution_role_arn = get_coa_stack_role_arn(region)
     except Exception as e:
-        print(f"❌ Failed to get shared Cognito configuration: {e}")
-        print("Make sure the shared Cognito infrastructure is deployed first:")
-        print("  python deployment-scripts/deploy_shared_cognito.py --create-test-user")
-        print(
-            "This will create the required parameters in Parameter Store at /coa/cognito/*"
-        )
+        print(f"❌ Failed to get execution role: {e}")
+        print("Make sure the COA stack is deployed with CloudFormation template v0.1.1 or later")
         sys.exit(1)
+
+    # Get shared Cognito configuration from Parameter Store
+    # Not using this for demo site because we are leveraging SigV4(IAM) for permission control
+    # print("\n📋 Getting shared Cognito configuration from Parameter Store...")
+    # try:
+    #     cognito_client = get_shared_cognito_client(
+    #         region=region, use_parameter_store=True
+    #     )
+
+    #     # Get authentication configuration for AgentCore
+    #     auth_config = cognito_client.get_auth_config_for_agentcore()
+
+    #     print("✓ Shared Cognito configuration retrieved from Parameter Store")
+    #     print(f"  User Pool ID: {cognito_client.get_user_pool_id()}")
+    #     print(f"  MCP Client ID: {cognito_client.get_mcp_server_client_id()}")
+
+    # except Exception as e:
+    #     print(f"❌ Failed to get shared Cognito configuration: {e}")
+    #     print("Make sure the shared Cognito infrastructure is deployed first:")
+    #     print("  python deployment-scripts/deploy_shared_cognito.py --create-test-user")
+    #     print(
+    #         "This will create the required parameters in Parameter Store at /coa/cognito/*"
+    #     )
+    #     sys.exit(1)
 
     # Configure AgentCore Runtime
     print("\n🔧 Configuring AgentCore Runtime...")
@@ -188,15 +166,18 @@ def main():
     try:
         response = agentcore_runtime.configure(
             entrypoint="server.py",
-            auto_create_execution_role=True,
+            execution_role=execution_role_arn,  # Use BedrockAgentCoreRuntimeRole
             auto_create_ecr=True,
             requirements_file="requirements.txt",
             region=region,
-            authorizer_configuration=auth_config,
             protocol="MCP",
             agent_name="aws_api_mcp_server",
         )
-        print("✓ Configuration completed", response.body)
+        
+        # Handle response properly (no .body attribute)
+        print(f"Configuration response: {response}")
+        print("✓ Configuration completed")
+        
     except Exception as e:
         print(f"❌ Configuration failed: {e}")
         sys.exit(1)
@@ -260,39 +241,38 @@ def main():
         )
 
         # Store additional metadata
-        # ssm_client.put_parameter(
-        #     Name='/coa/components/aws_api_mcp/package_name',
-        #     Value='awslabs.aws-api-mcp-server',
-        #     Type='String',
-        #     Description='Package name for AWS API MCP server',
-        #     Overwrite=True
-        # )
+        ssm_client.put_parameter(
+            Name="/coa/components/aws_api_mcp/deployment_type",
+            Value="public_package",
+            Type="String",
+            Description="Deployment type for AWS API MCP server",
+            Overwrite=True,
+        )
 
-        # ssm_client.put_parameter(
-        #     Name='/coa/components/aws_api_mcp/deployment_type',
-        #     Value='public_package',
-        #     Type='String',
-        #     Description='Deployment type for AWS API MCP server',
-        #     Overwrite=True
-        # )
+        ssm_client.put_parameter(
+            Name="/coa/components/aws_api_mcp/region",
+            Value=region,
+            Type="String",
+            Description="AWS region for AWS API MCP server",
+            Overwrite=True,
+        )
 
-        # ssm_client.put_parameter(
-        #     Name='/coa/components/aws_api_mcp/region',
-        #     Value=region,
-        #     Type='String',
-        #     Description='AWS region for AWS API MCP server',
-        #     Overwrite=True
-        # )
+        ssm_client.put_parameter(
+            Name="/coa/components/aws_api_mcp/execution_role_arn",
+            Value=execution_role_arn,
+            Type="String",
+            Description="Execution role ARN used by AWS API MCP server",
+            Overwrite=True,
+        )
 
         # Store connection information as JSON
         connection_info = {
             "agent_arn": launch_result.agent_arn,
             "agent_id": launch_result.agent_id,
-            "user_pool_id": cognito_client.get_user_pool_id(),
-            "mcp_client_id": cognito_client.get_mcp_server_client_id(),
             "region": region,
             "package_name": "awslabs.aws-api-mcp-server",
             "deployment_type": "public_package",
+            "execution_role_arn": execution_role_arn,
         }
 
         ssm_client.put_parameter(
@@ -306,6 +286,7 @@ def main():
         print("✓ Component configuration stored in Parameter Store")
         print("  Agent ARN: /coa/components/aws_api_mcp/agent_arn")
         print("  Agent ID: /coa/components/aws_api_mcp/agent_id")
+        print("  Execution Role: /coa/components/aws_api_mcp/execution_role_arn")
         print("  Connection Info: /coa/components/aws_api_mcp/connection_info")
 
     except Exception as e:
@@ -314,15 +295,15 @@ def main():
         print("⚠️ Continuing despite parameter storage failure...")
 
     print("\n🎉 Deployment completed successfully!")
-    print("=" * 60)
+    print("=" * 80)
     print(f"Agent ARN: {launch_result.agent_arn}")
     print(f"Agent ID: {launch_result.agent_id}")
-    print(f"Shared User Pool ID: {cognito_client.get_user_pool_id()}")
-    print(f"MCP Client ID: {cognito_client.get_mcp_server_client_id()}")
+    print(f"Execution Role: {execution_role_arn}")
     print("Package: awslabs.aws-api-mcp-server")
     print("Deployment Type: public_package")
     print("\nThe AWS API MCP Server is now deployed and ready!")
     print("It uses the shared Cognito user pool for authentication.")
+    print("It uses the BedrockAgentCoreRuntimeRole from the COA CloudFormation stack.")
     print("Configuration stored in Parameter Store under /coa/components/aws_api_mcp/*")
 
 

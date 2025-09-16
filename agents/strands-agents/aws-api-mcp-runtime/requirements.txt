@@ -1,0 +1,15 @@
+# Core AgentCore dependencies
+bedrock-agentcore>=0.1.0
+bedrock-agentcore-starter-toolkit>=0.1.0
+
+# AWS dependencies
+boto3>=1.35.0
+
+# MCP dependencies
+mcp>=1.10.0
+
+# Official AWS API MCP Server
+awslabs.aws-api-mcp-server
+
+# UV package manager (optional, for alternative installation)
+uv>=0.4.0
