@@ -74,7 +74,6 @@ Add the AWS Well-Architected Security Assessment Tool MCP Server to your MCP cli
         "server.py"
       ],
       "env": {
-        "AWS_PROFILE": "your-aws-profile",
         "AWS_REGION": "your-aws-region",
         "FASTMCP_LOG_LEVEL": "DEBUG"
       }
@@ -82,6 +81,58 @@ Add the AWS Well-Architected Security Assessment Tool MCP Server to your MCP cli
   }
 }
 ```
+
+## AWS Authentication
+
+The MCP server supports multiple AWS authentication methods through an enhanced credential chain:
+
+### Authentication Methods
+
+1. **AssumeRole (Recommended for Cross-Account Access)**
+   ```json
+   {
+     "env": {
+       "AWS_ASSUME_ROLE_ARN": "arn:aws:iam::123456789012:role/SecurityAuditRole",
+       "AWS_ASSUME_ROLE_SESSION_NAME": "mcp-security-session",
+       "AWS_ASSUME_ROLE_EXTERNAL_ID": "unique-external-id",
+       "AWS_REGION": "us-east-1"
+     }
+   }
+   ```
+
+2. **Environment Variables**
+   ```json
+   {
+     "env": {
+       "AWS_ACCESS_KEY_ID": "your-access-key",
+       "AWS_SECRET_ACCESS_KEY": "your-secret-key",
+       "AWS_SESSION_TOKEN": "your-session-token",
+       "AWS_REGION": "us-east-1"
+     }
+   }
+   ```
+
+3. **Default AWS Credentials Chain**
+   - IAM roles (EC2 instance profiles, ECS task roles, etc.)
+   - AWS credentials file (`~/.aws/credentials`)
+   - AWS config file (`~/.aws/config`)
+
+### AssumeRole Configuration
+
+For cross-account security assessments, configure AssumeRole using environment variables:
+
+- `AWS_ASSUME_ROLE_ARN`: **Required** - The ARN of the IAM role to assume
+- `AWS_ASSUME_ROLE_SESSION_NAME`: *Optional* - Custom session name (default: "mcp-server-session")
+- `AWS_ASSUME_ROLE_EXTERNAL_ID`: *Optional* - External ID for enhanced security
+
+**Example Cross-Account Setup:**
+```bash
+export AWS_ASSUME_ROLE_ARN="arn:aws:iam::TARGET-ACCOUNT:role/SecurityAuditRole"
+export AWS_ASSUME_ROLE_EXTERNAL_ID="shared-secret-key-2024"
+export AWS_REGION="us-east-1"
+```
+
+For detailed AssumeRole configuration, see [AssumeRole Configuration Guide](docs/assume-role-configuration.md).
 
 ## Security Controls
 
@@ -118,6 +169,11 @@ These operational tools help you monitor and manage your AWS security posture ag
   - Monitors resources against security standards for operational compliance
   - Identifies non-compliant resources for operational remediation workflows
   - Provides compliance metrics and operational improvement recommendations
+
+- **ValidateCredentialConfiguration**: AWS credential validation
+  - Validates current AWS credential configuration including AssumeRole setup
+  - Provides troubleshooting information for authentication issues
+  - Displays session information and credential source details
 
 - **GetStoredSecurityContext**: Historical security operations data
   - Retrieves historical security operations data for trend analysis
@@ -163,7 +219,8 @@ These operational tools help you monitor and manage your AWS security posture ag
 
 - Python 3.10+
 - AWS credentials with read-only permissions for security services
-- AWS CLI configured with appropriate profiles (optional)
+- For AssumeRole: IAM permissions to assume target roles
+- For cross-account access: Properly configured trust relationships
 
 ## Testing
 

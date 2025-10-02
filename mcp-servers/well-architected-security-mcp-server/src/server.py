@@ -54,6 +54,11 @@ from src.util.security_services import (
 from src.util.storage_security import (
     check_storage_encryption,
 )
+from src.util.credential_utils import (
+    create_aws_session,
+    get_session_info,
+    validate_assume_role_config,
+)
 
 # User agent configuration for AWS API calls
 USER_AGENT_CONFIG = Config(
@@ -176,10 +181,17 @@ async def check_security_services(
                 f"[DEBUG:CheckSecurityServices] Starting security services check for region: {region}"
             )
             print(f"[DEBUG:CheckSecurityServices] Services to check: {', '.join(services)}")
-            print("[DEBUG:CheckSecurityServices] Using default AWS credentials chain")
+            
+            # Validate AssumeRole configuration
+            assume_role_config = validate_assume_role_config()
+            print(f"[DEBUG:CheckSecurityServices] Credential config: {assume_role_config['message']}")
 
-        # Create a session using the default AWS credentials chain (IAM role, environment variables, etc.)
-        session = boto3.Session()
+        # Create a session using enhanced credential chain (supports AssumeRole via environment variables)
+        session = create_aws_session()
+        
+        if debug:
+            session_info = get_session_info(session)
+            print(f"[DEBUG:CheckSecurityServices] Session info: Account={session_info.get('account_id', 'Unknown')}, ARN={session_info.get('arn', 'Unknown')}")
 
         # Initialize results
         results = {
@@ -413,8 +425,8 @@ async def get_security_findings(
                     f"No stored security services data found for region: {region}. Will check service status directly."
                 )
 
-        # Create a session using the default AWS credentials chain
-        session = boto3.Session()
+        # Create a session using enhanced credential chain (supports AssumeRole via environment variables)
+        session = create_aws_session()
 
         # Prepare filter criteria based on severity
         filter_criteria = None
@@ -597,10 +609,10 @@ async def check_storage_encryption_tool(
     try:
         print(f"Starting storage encryption check for region: {region}")
         print(f"Services to check: {', '.join(services)}")
-        print("Using default AWS credentials chain")
+        print("Using enhanced AWS credentials chain (supports AssumeRole)")
 
-        # Create a session using the default AWS credentials chain
-        session = boto3.Session()
+        # Create a session using enhanced credential chain (supports AssumeRole via environment variables)
+        session = create_aws_session()
 
         # Call the storage security utility function
         results = await check_storage_encryption(
@@ -647,10 +659,10 @@ async def list_services_in_region_tool(
     - Read permissions for various AWS services
     """
     print(f"Starting service discovery for region: {region}")
-    print("Using default AWS credentials chain")
+    print("Using enhanced AWS credentials chain (supports AssumeRole)")
 
-    # Create a session using the default AWS credentials chain
-    session = boto3.Session()
+    # Create a session using enhanced credential chain (supports AssumeRole via environment variables)
+    session = create_aws_session()
 
     # Initialize results with default values
     results = {"region": region, "services": [], "service_counts": {}, "total_resources": 0}
@@ -679,6 +691,80 @@ async def list_services_in_region_tool(
         context_key = f"services_in_region_{region}"
         context_storage[context_key] = results
     return results
+
+
+@mcp.tool(name="ValidateCredentialConfiguration")
+async def validate_credential_configuration(
+    ctx: Context,
+) -> Dict:
+    """Validate AWS credential configuration including AssumeRole setup.
+
+    This tool checks the current AWS credential configuration and validates
+    any AssumeRole settings from environment variables. It's useful for
+    troubleshooting authentication issues and verifying cross-account access setup.
+
+    ## Response format
+    Returns a dictionary with:
+    - credential_source: How credentials are being obtained
+    - assume_role_configured: Whether AssumeRole is configured
+    - validation_status: Whether the configuration is valid
+    - session_info: Information about the current AWS session
+    - recommendations: Suggestions for improving the configuration
+
+    ## Environment Variables for AssumeRole
+    - AWS_ASSUME_ROLE_ARN: The ARN of the role to assume (required for AssumeRole)
+    - AWS_ASSUME_ROLE_SESSION_NAME: Session name (optional, defaults to 'mcp-server-session')
+    - AWS_ASSUME_ROLE_EXTERNAL_ID: External ID for enhanced security (optional)
+    """
+    try:
+        print("Validating AWS credential configuration...")
+        
+        # Validate AssumeRole configuration
+        assume_role_config = validate_assume_role_config()
+        
+        # Create session to test credentials
+        session = create_aws_session()
+        session_info = get_session_info(session)
+        
+        # Determine credential source
+        credential_source = "assume_role" if assume_role_config["configured"] else "default_chain"
+        
+        # Generate recommendations
+        recommendations = []
+        
+        if assume_role_config["configured"]:
+            if assume_role_config["valid"]:
+                recommendations.append("AssumeRole configuration is properly set up")
+                if not assume_role_config.get("external_id_configured", False):
+                    recommendations.append("Consider using AWS_ASSUME_ROLE_EXTERNAL_ID for enhanced security")
+            else:
+                recommendations.extend([f"Fix configuration issue: {issue}" for issue in assume_role_config.get("issues", [])])
+        else:
+            recommendations.append("Using default AWS credentials chain - consider AssumeRole for cross-account access")
+        
+        if session_info.get("error"):
+            recommendations.append("Credential validation failed - check your AWS configuration")
+        
+        return {
+            "credential_source": credential_source,
+            "assume_role_configured": assume_role_config["configured"],
+            "validation_status": "valid" if assume_role_config["valid"] and not session_info.get("error") else "invalid",
+            "assume_role_config": assume_role_config,
+            "session_info": session_info,
+            "recommendations": recommendations,
+            "message": "Credential configuration validated successfully" if not session_info.get("error") else "Credential validation encountered issues",
+        }
+        
+    except Exception as e:
+        print(f"ERROR: Error validating credential configuration: {e}")
+        return {
+            "credential_source": "unknown",
+            "assume_role_configured": False,
+            "validation_status": "error",
+            "error": str(e),
+            "message": "Failed to validate credential configuration",
+            "recommendations": ["Check AWS credentials and network connectivity"],
+        }
 
 
 @mcp.tool(name="CheckNetworkSecurity")
@@ -712,10 +798,10 @@ async def check_network_security_tool(
     try:
         print(f"Starting network security check for region: {region}")
         print(f"Services to check: {', '.join(services)}")
-        print("Using default AWS credentials chain")
+        print("Using enhanced AWS credentials chain (supports AssumeRole)")
 
-        # Create a session using the default AWS credentials chain
-        session = boto3.Session()
+        # Create a session using enhanced credential chain (supports AssumeRole via environment variables)
+        session = create_aws_session()
 
         # Call the network security utility function
         results = await check_network_security(

@@ -1,0 +1,66 @@
+# AWS Well-Architected Security & Cost Agent Requirements
+# Core Strands Framework
+strands-agents>=1.0.0
+strands-agents-tools>=0.2.0
+
+# Bedrock AgentCore Runtime
+bedrock-agentcore>=0.1.0
+
+# Model Context Protocol (MCP)
+mcp>=1.0.0
+
+# AWS SDK and Services
+boto3>=1.28.0
+botocore>=1.31.0
+
+# Bedrock Models and AI
+anthropic>=0.25.0
+
+# Data Processing and Validation
+pydantic>=2.0.0
+pydantic-core>=2.0.0
+
+# Async and Concurrency
+asyncio-mqtt>=0.13.0
+aiofiles>=23.0.0
+
+# Logging and Monitoring
+loguru>=0.7.0
+structlog>=23.0.0
+
+# HTTP and API Clients
+httpx>=0.25.0
+requests>=2.31.0
+
+# JSON and Data Serialization
+orjson>=3.9.0
+ujson>=5.8.0
+
+# Date and Time Handling
+python-dateutil>=2.8.0
+pytz>=2023.3
+
+# Environment and Configuration
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Type Hints and Development
+typing-extensions>=4.7.0
+
+# Security and Cryptography
+cryptography>=41.0.0
+
+# Utilities
+click>=8.1.0
+rich>=13.0.0
+
+# Testing (optional, for development)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0
+
+# Performance and Optimization
+uvloop>=0.17.0; sys_platform != "win32"
+
+# wa_security_agent
+awslabs.aws-api-mcp-server>=0.0.1

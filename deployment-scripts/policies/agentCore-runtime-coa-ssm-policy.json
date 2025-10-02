@@ -1,0 +1,27 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "SSMParameterAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:GetParametersByPath"
+            ],
+            "Resource": [
+                "arn:aws:ssm:us-east-1:384612698411:parameter/coa/*"
+            ]
+        },
+        {
+            "Sid": "BedrockAgentCoreInvoke",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:InvokeAgent"
+            ],
+            "Resource": [
+                "arn:aws:bedrock-agentcore:us-east-1:384612698411:runtime/*"
+            ]
+        }
+    ]
+}

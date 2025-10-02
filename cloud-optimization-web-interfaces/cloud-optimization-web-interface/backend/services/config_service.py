@@ -153,11 +153,15 @@ class ConfigService:
         if not self.ssm_client or self._ssm_available is False:
             return None
 
-        if key == "ENHANCED_SECURITY_AGENT_ID":
-            parameter_name = "/coa/agent/wa-security-agent/agent-id"
-        elif key == "ENHANCED_SECURITY_AGENT_ALIAS_ID":
-            parameter_name = "/coa/agent/wa-security-agent/alias-id"
-        else:
+        # Map configuration keys to SSM parameter names
+        # Updated to use new Strands agents instead of legacy Bedrock agents
+        parameter_mapping = {
+            "ENHANCED_SECURITY_AGENT_ID": "/coa/agents/strands_aws_wa_sec_cost/agent_id",
+            "ENHANCED_SECURITY_AGENT_ALIAS_ID": "/coa/agents/strands_aws_wa_sec_cost/agent_alias_id",
+        }
+
+        parameter_name = parameter_mapping.get(key)
+        if not parameter_name:
             return None
 
         try:
@@ -166,6 +170,19 @@ class ConfigService:
                 WithDecryption=True,  # Decrypt SecureString parameters
             )
             value = response["Parameter"]["Value"]
+
+            # Special handling for USE_MULTI_AGENT_SUPERVISOR - extract status from metadata
+            if key == "USE_MULTI_AGENT_SUPERVISOR":
+                try:
+                    import json
+
+                    metadata = json.loads(value)
+                    # Return "true" if status is DEPLOYED, "false" otherwise
+                    return "true" if metadata.get("status") == "DEPLOYED" else "false"
+                except (json.JSONDecodeError, KeyError):
+                    logger.warning(f"Failed to parse metadata for {key}")
+                    return "false"
+
             logger.info(f"Retrieved {key} from SSM Parameter Store")
             return value
 
@@ -191,6 +208,10 @@ class ConfigService:
             # Enhanced Security Agent Configuration
             "ENHANCED_SECURITY_AGENT_ID",
             "ENHANCED_SECURITY_AGENT_ALIAS_ID",
+            # Multi-Agent Supervisor Configuration
+            "USE_MULTI_AGENT_SUPERVISOR",
+            "MULTI_AGENT_SUPERVISOR_AGENT_ID",
+            "MULTI_AGENT_SUPERVISOR_AGENT_ALIAS_ID",
         ]
 
         config = {}

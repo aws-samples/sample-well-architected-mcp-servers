@@ -28,20 +28,21 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from models.chat_models import ChatMessage, ChatSession, ToolExecution
 from pydantic import BaseModel
 from services.auth_service import AuthService
 from services.aws_config_service import AWSConfigService
-from services.bedrock_agent_service import BedrockAgentService
+from services.enhanced_bedrock_agent_service import EnhancedBedrockAgentService
 
 # Import configuration service
 from services.config_service import config_service, get_config
 
 # Import the new LLM orchestrator service
 from services.llm_orchestrator_service import LLMOrchestratorService
-from services.mcp_client_service import MCPClientService
+
+# Import StrandsAgent orchestrator service
+from services.strands_llm_orchestrator_service import StrandsLLMOrchestratorService
 
 
 # Custom JSON encoder for datetime objects
@@ -183,19 +184,22 @@ auth_service = AuthService()
 aws_config_service = AWSConfigService()
 
 
-# Use LLM orchestrator as the primary service
-orchestrator_service = LLMOrchestratorService()
-logger.info("Using LLM Orchestrator service for intelligent tool routing")
 
-# Keep legacy services for backward compatibility if needed
-use_enhanced_agent = get_config("USE_ENHANCED_AGENT", "false").lower() == "true"
-if use_enhanced_agent:
-    bedrock_service = BedrockAgentService()
-    logger.info("Enhanced Security Agent service available as fallback")
+# Determine which orchestrator to use based on configuration
+use_strands_orchestrator = get_config("USE_STRANDS_ORCHESTRATOR", "true").lower() == "true"
+
+if use_strands_orchestrator:
+    orchestrator_service = StrandsLLMOrchestratorService()
+    logger.info("Using StrandsAgent LLM Orchestrator service for AgentCore runtime integration")
 else:
-    bedrock_service = None
+    orchestrator_service = LLMOrchestratorService()
+    logger.info("Using standard LLM Orchestrator service for intelligent tool routing")
 
-mcp_service = MCPClientService(demo_mode=False)  # Keep for direct access if needed
+# Initialize Enhanced Bedrock Agent Service (supports both Bedrock Agent and AgentCore)
+bedrock_service = EnhancedBedrockAgentService()
+logger.info("Enhanced Bedrock Agent Service initialized with dual runtime support")
+
+# MCP tools are now accessed through agents and dynamic MCP service
 
 
 # Connection manager for WebSocket
@@ -265,6 +269,51 @@ class AWSConfigResponse(BaseModel):
     role_arn: Optional[str] = None
 
 
+class MCPServerInfo(BaseModel):
+    name: str
+    display_name: str
+    agent_id: Optional[str] = None
+    agent_arn: Optional[str] = None
+    region: Optional[str] = None
+    deployment_type: Optional[str] = None
+    package_name: Optional[str] = None
+    capabilities: List[str] = []
+    capabilities_count: int = 0
+    description: str = ""
+    status: str = "unknown"
+    framework: str = "unknown"
+    available_tools: Optional[List[str]] = None
+    tools_count: Optional[int] = None
+    supported_services: Optional[List[str]] = None
+
+
+class MCPServersResponse(BaseModel):
+    total_servers: int
+    servers: List[MCPServerInfo]
+    timestamp: str
+    source: str = "ssm_parameter_store"
+
+
+class MCPToolInfo(BaseModel):
+    name: str
+    description: str = ""
+    parameters: Dict[str, Any] = {}
+    server_name: str
+    server_display_name: str
+    category: str
+    status: str = "available"
+
+
+class MCPToolsResponse(BaseModel):
+    total_tools: int
+    tools: List[MCPToolInfo]
+    tools_by_server: Dict[str, Any] = {}
+    tools_by_category: Dict[str, List[MCPToolInfo]] = {}
+    servers_count: int = 0
+    categories_count: int = 0
+    timestamp: str
+
+
 # Authentication dependency
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -278,123 +327,323 @@ async def get_current_user(
         )
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """
-    Health check endpoint for container and load balancer health monitoring.
-    Returns 200 OK when service is healthy, 503 Service Unavailable otherwise.
-    """
+    """Health check endpoint"""
+    services_status = {
+        "orchestrator": await orchestrator_service.health_check(),
+        "auth": "healthy",
+    }
+
+    # Add Enhanced Bedrock Agent Service status
+    if bedrock_service:
+        services_status["bedrock_agents"] = await bedrock_service.health_check()
+
+    return HealthResponse(
+        status="healthy"
+        if all(s in ["healthy", "degraded"] for s in services_status.values())
+        else "unhealthy",
+        services=services_status,
+        timestamp=datetime.utcnow(),
+    )
+
+
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check endpoint with MCP server breakdown"""
     try:
-        # Basic service health checks
-        health_status = {
-            "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "service": "cloud-optimization-backend",
-            "version": "1.0.0",
-            "checks": {
-                "dependencies": "healthy",
-                "environment": "healthy",
-                "services": "healthy"
-            }
+        # Get basic service status
+        services_status = {
+            "orchestrator": await orchestrator_service.health_check(),
+            "dynamic_mcp": await dynamic_mcp_service.health_check(),
+            "auth": "healthy",
         }
         
-        # Environment variable validation
-        required_env_vars = ["USER_POOL_ID", "WEB_APP_CLIENT_ID", "AWS_DEFAULT_REGION"]
-        missing_vars = []
+        # Get detailed MCP information
+        dynamic_mcp_details = dynamic_mcp_service.get_detailed_health()
+        orchestrator_details = orchestrator_service.get_detailed_health()
         
-        for env_var in required_env_vars:
-            # Check both environment variables and config service
-            env_value = os.getenv(env_var)
-            config_value = config_service.get_config_value(env_var) if config_service else None
-            
-            if not env_value and not config_value:
-                missing_vars.append(env_var)
-        
-        if missing_vars:
-            health_status["status"] = "unhealthy"
-            health_status["checks"]["environment"] = f"Missing required environment variables: {', '.join(missing_vars)}"
-            return JSONResponse(
-                status_code=503,
-                content=health_status
-            )
-        
-        # Service dependency checks
-        try:
-            services_status = {
-                "auth": "healthy",
-            }
-            
-            # Check orchestrator service
+        # Get agent information from Enhanced Bedrock Agent Service
+        agent_info = None
+        if bedrock_service:
             try:
-                services_status["orchestrator"] = await orchestrator_service.health_check()
+                agent_info = bedrock_service.get_agent_summary()
             except Exception as e:
-                logger.warning(f"Orchestrator health check failed: {e}")
-                services_status["orchestrator"] = "unhealthy"
-            
-            # Check MCP service
-            try:
-                services_status["mcp"] = await mcp_service.health_check()
-            except Exception as e:
-                logger.warning(f"MCP health check failed: {e}")
-                services_status["mcp"] = "unhealthy"
-            
-            # Add Enhanced Security Agent info if using it
-            if (
-                use_enhanced_agent
-                and bedrock_service
-                and hasattr(bedrock_service, "get_agent_info")
-            ):
-                try:
-                    agent_info = bedrock_service.get_agent_info()
-                    services_status["enhanced_agent"] = (
-                        "configured" if agent_info["configured"] else "not_configured"
-                    )
-                except Exception as e:
-                    logger.warning(f"Enhanced agent health check failed: {e}")
-                    services_status["enhanced_agent"] = "unhealthy"
-            
-            # Check if any critical services are unhealthy
-            unhealthy_services = [k for k, v in services_status.items() if v not in ["healthy", "degraded", "configured"]]
-            if unhealthy_services:
-                health_status["status"] = "unhealthy"
-                health_status["checks"]["services"] = f"Unhealthy services: {', '.join(unhealthy_services)}"
-                health_status["services"] = services_status
-                return JSONResponse(
-                    status_code=503,
-                    content=health_status
-                )
-            
-            health_status["services"] = services_status
-            
-        except Exception as service_error:
-            logger.error(f"Service health check failed: {str(service_error)}")
-            health_status["status"] = "unhealthy"
-            health_status["checks"]["services"] = f"Service check error: {str(service_error)}"
-            return JSONResponse(
-                status_code=503,
-                content=health_status
-            )
+                agent_info = {"error": str(e)}
         
-        # All checks passed
-        return JSONResponse(status_code=200, content=health_status)
+        overall_status = "healthy"
+        if services_status["mcp"] == "degraded" or services_status["orchestrator"] == "degraded":
+            overall_status = "degraded"
+        elif any(status == "unhealthy" for status in services_status.values()):
+            overall_status = "unhealthy"
+        
+        return {
+            "status": overall_status,
+            "services": services_status,
+            "dynamic_mcp_details": dynamic_mcp_details,
+            "orchestrator_details": orchestrator_details,
+            "agent_info": agent_info,
+            "timestamp": datetime.utcnow().isoformat()
+        }
         
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "unhealthy",
-                "timestamp": datetime.utcnow().isoformat(),
-                "service": "cloud-optimization-backend",
-                "version": "1.0.0",
-                "error": str(e),
-                "checks": {
-                    "dependencies": "error",
-                    "environment": "error", 
-                    "services": "error"
-                }
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.get("/api/agents/status")
+async def get_agents_status():
+    """Get basic agent status without authentication (for development/monitoring)"""
+    try:
+        # Check if using StrandsAgent orchestrator
+        if isinstance(orchestrator_service, StrandsLLMOrchestratorService):
+            # Get StrandsAgent status
+            service_summary = orchestrator_service.strands_discovery.get_service_summary()
+            
+            return {
+                "orchestrator_type": "strands_specialized",
+                "total_agents": service_summary["total_agents"],
+                "healthy_agents": service_summary["healthy_agents"],
+                "total_tools": service_summary["total_tools"],
+                "discovery_time": service_summary["last_discovery"],
+                "cache_ttl_seconds": service_summary["cache_ttl_seconds"],
+                "agents": service_summary["agents"]
             }
+        
+        # Fallback to standard Bedrock agent service
+        elif bedrock_service:
+            agents = bedrock_service.get_available_agents()
+            
+            # Return basic info without sensitive details
+            agent_summary = {}
+            for agent_type, agent in agents.items():
+                agent_summary[agent_type] = {
+                    "status": agent.status,
+                    "framework": agent.framework,
+                    "capabilities_count": len(agent.capabilities),
+                    "has_endpoint": bool(agent.endpoint_url)
+                }
+            
+            return {
+                "orchestrator_type": "standard",
+                "total_agents": len(agents),
+                "discovery_time": bedrock_service.agents_discovered_at.isoformat() if bedrock_service.agents_discovered_at else None,
+                "agents": agent_summary,
+                "cache_ttl_seconds": bedrock_service.discovery_cache_ttl
+            }
+        else:
+            return {"error": "No agent service available"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/mcp/status")
+async def get_mcp_status():
+    """Get detailed MCP server status without authentication (for development/monitoring)"""
+    try:
+        # Get orchestrator MCP status
+        orchestrator_health = await orchestrator_service.health_check()
+        
+        return {
+            "orchestrator_status": orchestrator_health,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/mcp/servers", response_model=MCPServersResponse)
+async def list_mcp_servers():
+    """List all available MCP servers integrated with the agent"""
+    try:
+        # Get MCP servers from SSM Parameter Store
+        import boto3
+        ssm_client = boto3.client("ssm")
+        
+        # Get all MCP server connection info parameters
+        response = ssm_client.get_parameters_by_path(
+            Path="/coa/components",
+            Recursive=True
         )
+        
+        # Filter for connection_info parameters
+        connection_info_params = [
+            param for param in response.get('Parameters', [])
+            if param['Name'].endswith('/connection_info')
+        ]
+        
+        mcp_servers = []
+        for param in connection_info_params:
+            try:
+                # Parse the connection info
+                connection_info = json.loads(param['Value'])
+                
+                # Extract server name from parameter path
+                # /coa/components/wa_security_mcp/connection_info -> wa_security_mcp
+                path_parts = param['Name'].split('/')
+                server_name = path_parts[-2] if len(path_parts) >= 3 else "unknown"
+                
+                # Create server info
+                server_info = {
+                    "name": server_name,
+                    "display_name": server_name.replace('_', ' ').title(),
+                    "agent_id": connection_info.get("agent_id"),
+                    "agent_arn": connection_info.get("agent_arn"),
+                    "region": connection_info.get("region"),
+                    "deployment_type": connection_info.get("deployment_type"),
+                    "package_name": connection_info.get("package_name"),
+                    "capabilities": connection_info.get("capabilities", []),
+                    "capabilities_count": len(connection_info.get("capabilities", [])),
+                    "description": connection_info.get("description", f"{server_name} MCP server"),
+                    "status": "deployed",  # Since it's in Parameter Store, it's deployed
+                    "framework": "agentcore_runtime"
+                }
+                
+                # Add additional metadata if available
+                if "available_tools" in connection_info:
+                    server_info["available_tools"] = connection_info["available_tools"]
+                    server_info["tools_count"] = len(connection_info["available_tools"])
+                
+                if "supported_services" in connection_info:
+                    server_info["supported_services"] = connection_info["supported_services"]
+                
+                mcp_servers.append(server_info)
+                
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse connection info for {param['Name']}: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"Error processing MCP server {param['Name']}: {e}")
+                continue
+        
+        # Sort servers by name for consistent ordering
+        mcp_servers.sort(key=lambda x: x["name"])
+        
+        return {
+            "total_servers": len(mcp_servers),
+            "servers": mcp_servers,
+            "timestamp": datetime.utcnow().isoformat(),
+            "source": "ssm_parameter_store"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing MCP servers: {e}")
+        return {
+            "error": str(e),
+            "total_servers": 0,
+            "servers": [],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.get("/api/mcp/tools", response_model=MCPToolsResponse)
+async def list_mcp_tools():
+    """List all available tools integrated with the agent"""
+    try:
+        # Get available tools from agents via dynamic MCP service
+        available_tools = []
+        
+        # Get tools from all discovered agents
+        agents = bedrock_service.get_available_agents()
+        for agent_type, agent_info in agents.items():
+            try:
+                agent_tools = await dynamic_mcp_service.load_agent_tools(agent_type, agent_info.metadata)
+                for tool_key, tool_data in agent_tools.items():
+                    available_tools.append({
+                        "name": tool_data["name"],
+                        "description": tool_data["description"],
+                        "parameters": tool_data.get("inputSchema", {}),
+                        "agent_type": agent_type,
+                        "server": tool_data["server"]
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to load tools for agent {agent_type}: {e}")
+                continue
+        
+        # Enhance tool information with server mapping
+        enhanced_tools = []
+        
+        # Process tools from agents
+        for tool in available_tools:
+            tool_name = tool.get("name", "")
+            server_name = tool.get("server", "unknown")
+            
+            enhanced_tool = {
+                "name": tool_name,
+                "description": tool.get("description", ""),
+                "parameters": tool.get("parameters", {}),
+                "server_name": server_name,
+                "server_display_name": server_name.replace('_', ' ').title(),
+                "category": _get_tool_category(tool_name),
+                "status": "available",
+                "agent_type": tool.get("agent_type", "unknown")
+            }
+            
+            enhanced_tools.append(enhanced_tool)
+        
+        # Group tools by server for better organization
+        tools_by_server = {}
+        for tool in enhanced_tools:
+            server_name = tool["server_name"]
+            if server_name not in tools_by_server:
+                tools_by_server[server_name] = {
+                    "server_name": server_name,
+                    "server_display_name": tool["server_display_name"],
+                    "tools": [],
+                    "tools_count": 0
+                }
+            tools_by_server[server_name]["tools"].append(tool)
+            tools_by_server[server_name]["tools_count"] += 1
+        
+        # Group tools by category
+        tools_by_category = {}
+        for tool in enhanced_tools:
+            category = tool["category"]
+            if category not in tools_by_category:
+                tools_by_category[category] = []
+            tools_by_category[category].append(tool)
+        
+        return {
+            "total_tools": len(enhanced_tools),
+            "tools": enhanced_tools,
+            "tools_by_server": tools_by_server,
+            "tools_by_category": tools_by_category,
+            "servers_count": len(tools_by_server),
+            "categories_count": len(tools_by_category),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing MCP tools: {e}")
+        return {
+            "error": str(e),
+            "total_tools": 0,
+            "tools": [],
+            "tools_by_server": {},
+            "tools_by_category": {},
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+def _get_tool_category(tool_name: str) -> str:
+    """Categorize tools based on their name and functionality"""
+    tool_name_lower = tool_name.lower()
+    
+    if any(keyword in tool_name_lower for keyword in ["security", "check", "findings", "encryption", "network"]):
+        return "security"
+    elif any(keyword in tool_name_lower for keyword in ["cost", "usage", "rightsizing", "savings", "budget"]):
+        return "cost_optimization"
+    elif any(keyword in tool_name_lower for keyword in ["service", "region", "list", "discover"]):
+        return "discovery"
+    elif any(keyword in tool_name_lower for keyword in ["storage", "encryption"]):
+        return "storage"
+    elif any(keyword in tool_name_lower for keyword in ["network", "vpc", "elb"]):
+        return "networking"
+    else:
+        return "general"
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -478,6 +727,13 @@ async def process_chat_message(
     if session_id in manager.active_connections:
         await manager.send_message(session_id, {"type": "typing", "status": True})
 
+    # Check if a specific agent is selected for this session
+    selected_agent_id = agent_selection_manager.get_selected_agent(session_id)
+    if selected_agent_id:
+        logger.info(f"Using selected agent: {selected_agent_id} for session: {session_id}")
+        # Add selected agent to session context
+        session.context["selected_agent"] = selected_agent_id
+
     try:
         # Process with LLM Orchestrator
         bedrock_response = await orchestrator_service.process_message(
@@ -532,9 +788,10 @@ async def get_session_history(session_id: str, user=Depends(get_current_user)):
 
 @app.get("/api/mcp/tools")
 async def get_available_tools(user=Depends(get_current_user)):
-    """Get list of available MCP tools"""
+    """Get list of available MCP tools through agents"""
     try:
-        tools = await mcp_service.get_available_tools()
+        # Get tools from all agents via orchestrator
+        tools = await orchestrator_service.get_available_tools()
         return {"tools": tools}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -657,6 +914,398 @@ async def list_ssm_parameters(user=Depends(get_current_user)):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents")
+async def get_available_agents(user=Depends(get_current_user)):
+    """Get information about all available agents"""
+    try:
+        if bedrock_service:
+            agent_info = bedrock_service.get_agent_info()
+            return agent_info
+        else:
+            return {"error": "Bedrock agent service not available"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/refresh")
+async def refresh_agents(user=Depends(get_current_user)):
+    """Force refresh of agent discovery"""
+    try:
+        if bedrock_service:
+            agent_info = bedrock_service.refresh_agents()
+            return {
+                "status": "success",
+                "message": "Agents refreshed",
+                "agents": agent_info,
+            }
+        else:
+            return {"error": "Bedrock agent service not available"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/enhanced")
+async def get_enhanced_agents(user=Depends(get_current_user)):
+    """Get information about all available agents from enhanced service"""
+    try:
+        agents = bedrock_service.get_available_agents()
+        summary = bedrock_service.get_agent_summary()
+        
+        return {
+            "status": "success",
+            "summary": summary,
+            "agents": {
+                agent_type: {
+                    "agent_id": agent.agent_id,
+                    "agent_alias_id": agent.agent_alias_id,
+                    "runtime_type": agent.runtime_type.value,
+                    "status": agent.status,
+                    "framework": agent.framework,
+                    "capabilities": agent.capabilities,
+                    "model_id": agent.model_id,
+                    "endpoint_url": agent.endpoint_url,
+                    "health_check_url": agent.health_check_url,
+                    "agent_arn": agent.agent_arn
+                }
+                for agent_type, agent in agents.items()
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/enhanced/runtime-types")
+async def get_runtime_types(user=Depends(get_current_user)):
+    """Get agents grouped by runtime type"""
+    try:
+        from services.enhanced_bedrock_agent_service import AgentType
+        
+        bedrock_agents = bedrock_service.get_agents_by_runtime_type(AgentType.BEDROCK_AGENT)
+        agentcore_agents = bedrock_service.get_agents_by_runtime_type(AgentType.BEDROCK_AGENTCORE)
+        
+        return {
+            "status": "success",
+            "runtime_types": {
+                "bedrock-agent": {
+                    "count": len(bedrock_agents),
+                    "agents": [
+                        {
+                            "agent_type": agent.agent_type,
+                            "agent_id": agent.agent_id,
+                            "status": agent.status,
+                            "capabilities": agent.capabilities
+                        }
+                        for agent in bedrock_agents
+                    ]
+                },
+                "bedrock-agentcore": {
+                    "count": len(agentcore_agents),
+                    "agents": [
+                        {
+                            "agent_type": agent.agent_type,
+                            "agent_id": agent.agent_id,
+                            "status": agent.status,
+                            "capabilities": agent.capabilities,
+                            "endpoint_url": agent.endpoint_url
+                        }
+                        for agent in agentcore_agents
+                    ]
+                }
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/enhanced/refresh")
+async def refresh_enhanced_agents(user=Depends(get_current_user)):
+    """Force refresh of enhanced agent discovery"""
+    try:
+        bedrock_service._discover_agents()
+        summary = bedrock_service.get_agent_summary()
+        
+        return {
+            "status": "success",
+            "message": "Enhanced agents refreshed",
+            "summary": summary
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/enhanced")
+async def enhanced_chat_endpoint(request: ChatRequest, user=Depends(get_current_user)):
+    """Enhanced chat endpoint using the dual runtime service"""
+    try:
+        # Get or create session
+        session_id = request.session_id or str(uuid.uuid4())
+        session = manager.sessions.get(session_id)
+        
+        if not session:
+            session = ChatSession(
+                session_id=session_id,
+                created_at=datetime.utcnow(),
+                messages=[],
+                context={}
+            )
+            manager.sessions[session_id] = session
+
+        # Add user message to session
+        user_message = ChatMessage(
+            role="user",
+            content=request.message,
+            timestamp=datetime.utcnow()
+        )
+        session.messages.append(user_message)
+
+        # Process message with enhanced service
+        response = await bedrock_service.process_message(
+            message=request.message,
+            session=session,
+            agent_type=request.agent_type if hasattr(request, 'agent_type') else None
+        )
+
+        # Add assistant response to session
+        assistant_message = ChatMessage(
+            role="assistant",
+            content=response.response,
+            timestamp=datetime.utcnow(),
+            tool_executions=response.tool_executions
+        )
+        session.messages.append(assistant_message)
+
+        return {
+            "response": response.response,
+            "session_id": session_id,
+            "model_id": response.model_id,
+            "tool_executions": [
+                {
+                    "tool_name": te.tool_name,
+                    "tool_input": te.tool_input,
+                    "tool_output": te.tool_output,
+                    "status": te.status.value,
+                    "timestamp": te.timestamp.isoformat()
+                }
+                for te in response.tool_executions
+            ] if response.tool_executions else []
+        }
+
+    except Exception as e:
+        logger.error(f"Enhanced chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Agent selection state management
+class AgentSelectionManager:
+    def __init__(self):
+        self.selected_agents = {}  # session_id -> agent_type mapping
+        
+    def select_agent(self, session_id: str, agent_type: str) -> bool:
+        """Select an agent for a session"""
+        # Validate agent exists
+        if bedrock_service:
+            available_agents = bedrock_service.get_available_agents()
+            if agent_type not in available_agents:
+                return False
+        
+        self.selected_agents[session_id] = agent_type
+        return True
+    
+    def get_selected_agent(self, session_id: str) -> Optional[str]:
+        """Get selected agent for a session"""
+        return self.selected_agents.get(session_id)
+    
+    def clear_selection(self, session_id: str):
+        """Clear agent selection for a session"""
+        if session_id in self.selected_agents:
+            del self.selected_agents[session_id]
+
+# Global agent selection manager
+agent_selection_manager = AgentSelectionManager()
+
+
+# Agent management endpoints (no authentication for local testing)
+@app.get("/agents")
+async def list_agents():
+    """List all available agents (no authentication required for local testing)"""
+    try:
+        if not bedrock_service:
+            return {
+                "error": "Bedrock agent service not available",
+                "agents": []
+            }
+        
+        agents = bedrock_service.get_available_agents()
+        
+        # Format agents for display
+        formatted_agents = []
+        for agent_type, agent_info in agents.items():
+            formatted_agents.append({
+                "id": agent_type,
+                "name": _format_agent_name(agent_type),
+                "description": _get_agent_description(agent_type),
+                "status": agent_info.status,
+                "framework": agent_info.framework,
+                "capabilities": agent_info.capabilities,
+                "agent_id": agent_info.agent_id,
+                "agent_alias_id": agent_info.agent_alias_id
+            })
+        
+        return {
+            "agents": formatted_agents,
+            "total": len(formatted_agents),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing agents: {e}")
+        return {
+            "error": str(e),
+            "agents": []
+        }
+
+
+@app.post("/agents/select/{agent_id}")
+async def select_agent(agent_id: str, session_id: str = "default"):
+    """Select an agent for subsequent chat messages"""
+    try:
+        # Validate agent exists
+        if not bedrock_service:
+            raise HTTPException(status_code=503, detail="Bedrock agent service not available")
+        
+        agents = bedrock_service.get_available_agents()
+        if agent_id not in agents:
+            available_ids = list(agents.keys())
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Agent '{agent_id}' not found. Available agents: {available_ids}"
+            )
+        
+        # Select the agent
+        success = agent_selection_manager.select_agent(session_id, agent_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to select agent")
+        
+        agent_info = agents[agent_id]
+        
+        return {
+            "status": "success",
+            "message": f"Selected agent: {_format_agent_name(agent_id)}",
+            "selected_agent": {
+                "id": agent_id,
+                "name": _format_agent_name(agent_id),
+                "description": _get_agent_description(agent_id),
+                "status": agent_info.status,
+                "framework": agent_info.framework,
+                "agent_id": agent_info.agent_id
+            },
+            "session_id": session_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error selecting agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/agents/selected")
+async def get_selected_agent(session_id: str = "default"):
+    """Get the currently selected agent for a session"""
+    try:
+        selected_agent_id = agent_selection_manager.get_selected_agent(session_id)
+        
+        if not selected_agent_id:
+            return {
+                "selected_agent": None,
+                "message": "No agent selected for this session"
+            }
+        
+        # Get agent details
+        if bedrock_service:
+            agents = bedrock_service.get_available_agents()
+            if selected_agent_id in agents:
+                agent_info = agents[selected_agent_id]
+                return {
+                    "selected_agent": {
+                        "id": selected_agent_id,
+                        "name": _format_agent_name(selected_agent_id),
+                        "description": _get_agent_description(selected_agent_id),
+                        "status": agent_info.status,
+                        "framework": agent_info.framework,
+                        "agent_id": agent_info.agent_id
+                    },
+                    "session_id": session_id
+                }
+        
+        # Agent no longer exists, clear selection
+        agent_selection_manager.clear_selection(session_id)
+        return {
+            "selected_agent": None,
+            "message": "Previously selected agent no longer available"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting selected agent: {e}")
+        return {
+            "error": str(e),
+            "selected_agent": None
+        }
+
+
+@app.delete("/agents/selected")
+async def clear_agent_selection(session_id: str = "default"):
+    """Clear agent selection for a session"""
+    try:
+        agent_selection_manager.clear_selection(session_id)
+        return {
+            "status": "success",
+            "message": "Agent selection cleared",
+            "session_id": session_id
+        }
+    except Exception as e:
+        logger.error(f"Error clearing agent selection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Local testing endpoints (no authentication required)
+@app.post("/api/chat/local")
+async def local_chat_endpoint(request: ChatRequest):
+    """Local chat endpoint without authentication for testing"""
+    try:
+        session_id = request.session_id or "local-test-session"
+
+        # Process the chat message
+        response = await process_chat_message(
+            message=request.message,
+            session_id=session_id,
+            context=request.context or {},
+            user_id="local-test-user",
+        )
+
+        return response
+    except Exception as e:
+        logger.error(f"Local chat endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _format_agent_name(agent_type: str) -> str:
+    """Convert agent type to human-readable name"""
+    return agent_type.replace('_', ' ').replace('-', ' ').title().replace('Wa ', 'WA ').replace('Mcp', 'MCP')
+
+
+def _get_agent_description(agent_type: str) -> str:
+    """Get description for an agent type"""
+    descriptions = {
+        'wa-security-agent': 'AWS security analysis and Well-Architected security pillar assessments',
+        'strands_aws_wa_sec_cost': 'Dual-domain specialist for AWS security and cost optimization analysis',
+        'wa_cost_agent': 'Cost optimization and financial analysis',
+        'wa_reliability_agent': 'Reliability assessments and resilience analysis',
+        'multi_agent_supervisor': 'Coordinating multiple specialized agents for comprehensive analysis'
+    }
+    return descriptions.get(agent_type, 'Cloud optimization and analysis specialist')
 
 
 if __name__ == "__main__":
