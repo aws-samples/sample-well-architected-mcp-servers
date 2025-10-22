@@ -62,5 +62,5 @@ pytest-mock>=3.11.0
 # Performance and Optimization
 uvloop>=0.17.0; sys_platform != "win32"
 
-# wa_security_agent
-awslabs.well-architected-security-mcp-server>=0.0.1
+# Local MCP Server Dependencies (from well-architected-security-mcp-server)
+fastapi>=0.100.0
