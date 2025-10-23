@@ -106,6 +106,47 @@ client = get_shared_cognito_client()
 user_pool_id = client.get_user_pool_id()
 ```
 
+### 🔧 **AgentCore Runtime Registration**
+
+#### `register-agentcore-runtime/` 🌟 **DEDICATED REGISTRATION TOOLS**
+**Purpose**: Complete toolkit for registering Bedrock AgentCore runtimes
+**Status**: ✅ **Production Ready**
+**Location**: `deployment-scripts/register-agentcore-runtime/`
+
+```bash
+# One-click interactive registration
+cd deployment-scripts/register-agentcore-runtime
+./register_agent.sh
+
+# Specify region
+./register_agent.sh --region eu-west-1
+
+# Command-line registration
+python register_manual_agent.py \
+  --region us-east-1 \
+  --agent-name my-agent \
+  --agent-arn arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/agent-id
+
+# Discovery only
+python discover_agents.py --region us-east-1
+```
+
+**Features:**
+- 🔍 **Auto-discovers** deployed Bedrock AgentCore runtimes via AWS APIs
+- 📋 **Lists** already registered vs. unregistered agents
+- 🎯 **Interactive selection** from available runtimes
+- ✅ **Guided registration** with smart defaults
+- 🧪 **Automatic verification** of COA chatbot integration
+- 📚 **Comprehensive documentation** and troubleshooting guides
+
+**Files:**
+- `register_agent.sh` - One-click launcher
+- `interactive_agent_registration.py` - Interactive Python tool
+- `register_manual_agent.py` - Command-line registration
+- `discover_agents.py` - Discovery and status utility
+- `README.md` - Quick start guide
+- `ONE_CLICK_REGISTRATION_GUIDE.md` - Comprehensive user guide
+
 
 ### Bedrock Agent Deployments
 
@@ -126,6 +167,8 @@ python3 deploy_bedrockagent_wa_security_agent.py
 ## 🚀 **Deployment Order**
 
 For a complete setup, deploy in this order:
+
+### **Automated Deployment**
 
 1. **Deploy MCP Server**
    ```bash
@@ -148,6 +191,60 @@ For a complete setup, deploy in this order:
    ```bash
    cd ../cloud-optimization-web-interfaces/cloud-optimization-web-interface
    python3 test_integration.py
+   ```
+
+### **Manual Agent Registration Workflow**
+
+For agents deployed manually or outside the automated scripts:
+
+#### **🌟 One-Click Interactive Method (Recommended)**
+
+```bash
+# Navigate to registration tools directory
+cd deployment-scripts/register-agentcore-runtime
+
+# Single command for complete interactive registration
+./register_agent.sh
+```
+
+This interactive tool will:
+- ✅ Auto-discover available AgentCore runtimes via AWS APIs
+- ✅ Show already registered agents  
+- ✅ Guide you through selecting agents to register
+- ✅ Collect registration details with prompts
+- ✅ Perform registration and verify integration
+
+#### **Manual Command-Line Method**
+
+```bash
+cd deployment-scripts/register-agentcore-runtime
+```
+
+1. **Discover Existing Agents**
+   ```bash
+   python discover_agents.py --region us-east-1
+   ```
+
+2. **Register Manual Agents**
+   ```bash
+   # Use the discovery report to identify agents that need registration
+   python register_manual_agent.py \
+     --region us-east-1 \
+     --agent-name your-agent-name \
+     --agent-arn arn:aws:bedrock-agentcore:region:account:runtime/agent-id
+   ```
+
+3. **Verify Registration**
+   ```bash
+   # Run discovery again to confirm registration
+   python discover_agents.py --region us-east-1
+   ```
+
+4. **Test Chatbot Integration**
+   ```bash
+   # Launch web interface and verify agent appears in chatbot
+   cd ../cloud-optimization-web-interfaces/cloud-optimization-web-interface
+   python3 start_server.py
    ```
 
 ## 🔧 **Configuration**

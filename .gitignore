@@ -573,3 +573,8 @@ memory-bank/*
 
 **-deploy/**
 cloud-optimization-web-interfaces/cloud-optimization-web-interface/frontend/config.js
+
+# AgentCore runtime setting
+**/.bedrock_agentcore.yaml
+.bedrock_agentcore.yaml
+**/.bedrock_agentcore/**

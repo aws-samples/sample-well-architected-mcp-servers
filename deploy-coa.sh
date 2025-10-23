@@ -30,7 +30,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default values
-STACK_NAME="cloud-optimization-assistant"
+DEFAULT_STACK_NAME="coa"
+STACK_NAME=""
 REGION="us-east-1"
 ENVIRONMENT="prod"
 PROFILE=""
@@ -38,6 +39,7 @@ SKIP_PREREQUISITES=false
 CLEANUP_ONLY=false
 RESUME_FROM_STAGE=0
 PROGRESS_FILE=".coa-deployment-progress"
+USE_DATE_SUFFIX=true
 
 # Function to print colored output
 print_status() {
@@ -64,12 +66,13 @@ Usage: $0 [OPTIONS]
 Deploy Cloud Optimization Assistant (COA) end-to-end stack
 
 OPTIONS:
-    -n, --stack-name NAME       CloudFormation stack name (default: cloud-optimization-assistant)
+    -n, --stack-name NAME       CloudFormation stack name (default: coa-MMDD)
     -r, --region REGION         AWS region (default: us-east-1)
     -e, --environment ENV       Environment: dev, staging, prod (default: prod)
     -p, --profile PROFILE       AWS CLI profile name
     -s, --skip-prerequisites    Skip prerequisite checks
     -c, --cleanup               Comprehensive cleanup: delete CloudFormation stack, S3 source buckets, and SSM parameters, then exit
+    --no-date-suffix            Don't append date suffix to stack name
     --resume-from-stage N       Resume deployment from stage N (1-7)
     --show-progress             Show current deployment progress and exit
     --reset-progress            Reset deployment progress tracking
@@ -86,9 +89,10 @@ DEPLOYMENT STAGES:
     8. Final completion
 
 EXAMPLES:
-    $0                                          # Deploy with defaults
+    $0                                          # Deploy with defaults (stack name includes today's date)
     $0 -p gameday -e dev                       # Deploy with gameday profile in dev environment
     $0 -n my-coa-stack -r us-west-2           # Deploy with custom stack name and region
+    $0 --no-date-suffix                        # Deploy without date suffix in stack name
     $0 -s                                      # Skip prerequisite checks
     $0 -c                                      # Comprehensive cleanup: delete stack, buckets, and parameters only
     $0 --resume-from-stage 3                   # Resume from stage 3 (Deploy MCP servers)
@@ -103,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -n|--stack-name)
             STACK_NAME="$2"
+            USE_DATE_SUFFIX=false
             shift 2
             ;;
         -r|--region)
@@ -123,6 +128,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--cleanup)
             CLEANUP_ONLY=true
+            shift
+            ;;
+        --no-date-suffix)
+            USE_DATE_SUFFIX=false
             shift
             ;;
         --resume-from-stage)
@@ -301,6 +310,19 @@ reset_deployment_progress() {
     fi
 }
 
+# Function to generate stack name with date suffix
+generate_stack_name() {
+    if [[ -z "$STACK_NAME" ]]; then
+        if [[ "$USE_DATE_SUFFIX" == "true" ]]; then
+            local date_suffix=$(date '+%m%d')  # Use MMDD format to keep names shorter
+            STACK_NAME="${DEFAULT_STACK_NAME}-${date_suffix}"
+        else
+            STACK_NAME="$DEFAULT_STACK_NAME"
+        fi
+    fi
+    print_status "Using stack name: $STACK_NAME"
+}
+
 # Function to validate resume stage
 validate_resume_stage() {
     local resume_stage=$1
@@ -337,7 +359,7 @@ validate_resume_stage() {
         saved_profile=$(grep '^PROFILE=' "$PROGRESS_FILE" | cut -d'"' -f2)
 
         # Use saved values if current values are defaults and saved values exist
-        if [[ "$STACK_NAME" == "cloud-optimization-assistant" && -n "$saved_stack_name" ]]; then
+        if [[ "$STACK_NAME" == "coa" && -n "$saved_stack_name" ]]; then
             STACK_NAME="$saved_stack_name"
             print_status "Using stack name from previous deployment: $STACK_NAME"
         fi
@@ -605,9 +627,55 @@ check_existing_ssm_parameters() {
     fi
 }
 
-# Function to clean up S3 source buckets
-cleanup_s3_source_buckets() {
-    print_status "Cleaning up S3 source buckets..."
+# Function to empty and delete S3 bucket with all versions
+empty_s3_bucket_completely() {
+    local bucket_name="$1"
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    print_status "Completely emptying S3 bucket: $bucket_name"
+    
+    # Check if bucket exists
+    if ! $aws_cmd s3api head-bucket --bucket "$bucket_name" --region $REGION >/dev/null 2>&1; then
+        print_status "Bucket does not exist: $bucket_name"
+        return 0
+    fi
+    
+    # Delete all object versions
+    print_status "Deleting all object versions in $bucket_name..."
+    local versions
+    if versions=$($aws_cmd s3api list-object-versions --bucket "$bucket_name" --query 'Versions[].{Key:Key,VersionId:VersionId}' --output json 2>/dev/null); then
+        if [[ "$versions" != "[]" && "$versions" != "null" ]]; then
+            $aws_cmd s3api delete-objects --bucket "$bucket_name" --delete "{\"Objects\": $versions}" >/dev/null 2>&1 || true
+            print_success "Deleted object versions"
+        fi
+    fi
+    
+    # Delete all delete markers
+    print_status "Deleting all delete markers in $bucket_name..."
+    local delete_markers
+    if delete_markers=$($aws_cmd s3api list-object-versions --bucket "$bucket_name" --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' --output json 2>/dev/null); then
+        if [[ "$delete_markers" != "[]" && "$delete_markers" != "null" ]]; then
+            $aws_cmd s3api delete-objects --bucket "$bucket_name" --delete "{\"Objects\": $delete_markers}" >/dev/null 2>&1 || true
+            print_success "Deleted delete markers"
+        fi
+    fi
+    
+    # Delete the bucket
+    if $aws_cmd s3api delete-bucket --bucket "$bucket_name" --region $REGION >/dev/null 2>&1; then
+        print_success "Deleted S3 bucket: $bucket_name"
+        return 0
+    else
+        print_warning "Failed to delete S3 bucket: $bucket_name"
+        return 1
+    fi
+}
+
+# Function to clean up all S3 buckets
+cleanup_s3_buckets() {
+    print_status "Cleaning up all S3 buckets..."
     
     local aws_cmd="aws"
     if [[ -n "$PROFILE" ]]; then
@@ -617,64 +685,58 @@ cleanup_s3_source_buckets() {
     local buckets_deleted=0
     local buckets_failed=0
     
-    # Calculate expected bucket name for the current stack
+    # Get account ID
     local account_id
     if account_id=$($aws_cmd sts get-caller-identity --query Account --output text 2>/dev/null); then
-        local expected_bucket="${STACK_NAME}-source-${account_id}-${REGION}"
         
-        print_status "Looking for source bucket: $expected_bucket"
+        # List of expected bucket patterns
+        local bucket_patterns=(
+            "${STACK_NAME}-source-${account_id}-${REGION}"
+            "${STACK_NAME}-frontend-${account_id}-${REGION}"
+            "${STACK_NAME}-artifacts-${account_id}-${REGION}"
+        )
         
-        # Check if the bucket exists
-        if $aws_cmd s3api head-bucket --bucket "$expected_bucket" --region $REGION >/dev/null 2>&1; then
-            print_status "Found source bucket: $expected_bucket"
-            
-            # First, empty the bucket (delete all objects)
-            print_status "Emptying bucket contents..."
-            if $aws_cmd s3 rm "s3://$expected_bucket" --recursive --region $REGION >/dev/null 2>&1; then
-                print_success "Bucket contents deleted"
-            else
-                print_warning "Failed to delete some bucket contents"
-            fi
-            
-            # Then delete the bucket
-            if $aws_cmd s3api delete-bucket --bucket "$expected_bucket" --region $REGION >/dev/null 2>&1; then
-                print_success "Deleted source bucket: $expected_bucket"
+        for bucket_name in "${bucket_patterns[@]}"; do
+            if empty_s3_bucket_completely "$bucket_name"; then
                 ((buckets_deleted++))
             else
-                print_warning "Failed to delete source bucket: $expected_bucket"
                 ((buckets_failed++))
             fi
-        else
-            print_status "Source bucket not found (may have been deleted already): $expected_bucket"
+        done
+        
+        # Also look for any other buckets with the stack name
+        print_status "Checking for additional buckets with stack name pattern..."
+        local all_buckets
+        if all_buckets=$($aws_cmd s3api list-buckets --query "Buckets[?contains(Name, '${STACK_NAME}')].Name" --output text 2>/dev/null); then
+            if [[ -n "$all_buckets" && "$all_buckets" != "" ]]; then
+                for bucket in $all_buckets; do
+                    # Skip if already processed
+                    local already_processed=false
+                    for pattern in "${bucket_patterns[@]}"; do
+                        if [[ "$bucket" == "$pattern" ]]; then
+                            already_processed=true
+                            break
+                        fi
+                    done
+                    
+                    if [[ "$already_processed" == "false" ]]; then
+                        print_warning "Found additional bucket: $bucket"
+                        if empty_s3_bucket_completely "$bucket"; then
+                            ((buckets_deleted++))
+                        else
+                            ((buckets_failed++))
+                        fi
+                    fi
+                done
+            fi
         fi
     else
         print_error "Failed to get AWS account ID"
         return 1
     fi
     
-    # Also look for any orphaned buckets with similar patterns
-    print_status "Checking for orphaned source buckets..."
-    local all_buckets
-    if all_buckets=$($aws_cmd s3api list-buckets --query "Buckets[?contains(Name, '${STACK_NAME}-source-')].Name" --output text --region $REGION 2>/dev/null); then
-        if [[ -n "$all_buckets" && "$all_buckets" != "" ]]; then
-            for bucket in $all_buckets; do
-                if [[ "$bucket" != "$expected_bucket" ]]; then
-                    print_warning "Found orphaned source bucket: $bucket"
-                    print_status "To manually delete: $aws_cmd s3 rb s3://$bucket --force --region $REGION"
-                fi
-            done
-        fi
-    fi
-    
     # Summary
-    if [[ $buckets_deleted -eq 0 && $buckets_failed -eq 0 ]]; then
-        print_status "No S3 source buckets found to clean up"
-    else
-        print_success "Cleaned up $buckets_deleted S3 source buckets"
-        if [[ $buckets_failed -gt 0 ]]; then
-            print_warning "$buckets_failed source buckets could not be deleted"
-        fi
-    fi
+    print_success "Processed S3 buckets: $buckets_deleted deleted, $buckets_failed failed"
 }
 
 # Function to clean up CloudFormation stack
@@ -1084,18 +1146,12 @@ deploy_mcp_servers() {
         python_args="$python_args --profile $PROFILE"
     fi
 
-    # Deploy AWS API MCP Server
-    print_status "Deploying AWS API MCP Server..."
-    if ! python3 deployment-scripts/components/deploy_component_aws_api_mcp_server.py $python_args; then
-        print_error "AWS API MCP Server deployment failed"
-        exit 1
-    fi
-
-    # Deploy WA Security MCP Server
+    # Deploy WA Security MCP Server (AWS API MCP Server not available in this repository)
     print_status "Deploying WA Security MCP Server..."
     if ! python3 deployment-scripts/components/deploy_component_wa_security_mcp.py $python_args; then
-        print_error "WA Security MCP Server deployment failed"
-        exit 1
+        print_warning "WA Security MCP Server deployment failed - continuing with deployment"
+        print_status "You can deploy MCP servers manually later if needed"
+        return 0  # Don't fail the entire deployment
     fi
 
     print_success "MCP servers deployed successfully"
@@ -1492,11 +1548,48 @@ stage_4_deploy_bedrock_agent() {
 
 # Stage 5: Generate and upload remote role stack template
 stage_5_generate_remote_role() {
-    if generate_and_upload_remote_role_stack; then
-        print_success "Remote role template generated and uploaded successfully"
+    print_status "Generating remote IAM role CloudFormation template..."
+    
+    local python_args="--environment $ENVIRONMENT"
+    if [[ -n "$PROFILE" ]]; then
+        python_args="$python_args --profile $PROFILE"
+    fi
+
+    # Try to generate the remote role stack template
+    if python3 deployment-scripts/generate_remote_role_stack.py $python_args; then
+        print_success "Remote role stack template generated successfully"
+        
+        # Try to upload template to S3 and get public URL
+        local aws_cmd="aws"
+        if [[ -n "$PROFILE" ]]; then
+            aws_cmd="aws --profile $PROFILE"
+        fi
+
+        # Get the S3 bucket name from the chatbot stack outputs
+        local s3_bucket
+        if s3_bucket=$($aws_cmd cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucketName`].OutputValue' --output text 2>/dev/null); then
+            if [[ -n "$s3_bucket" && "$s3_bucket" != "None" ]]; then
+                # Find the generated template file
+                local template_file
+                if template_file=$(find generated-templates/remote-role-stack -name "remote-role-*.yaml" -type f | head -1 2>/dev/null); then
+                    if [[ -f "$template_file" ]]; then
+                        local template_filename=$(basename "$template_file")
+                        # Upload template to S3
+                        if $aws_cmd s3 cp "$template_file" "s3://$s3_bucket/templates/$template_filename" --region $REGION; then
+                            local template_url="https://$s3_bucket.s3.amazonaws.com/templates/$template_filename"
+                            print_success "Template uploaded successfully: $template_url"
+                        else
+                            print_warning "Failed to upload template to S3"
+                        fi
+                    fi
+                fi
+            fi
+        fi
         return 0
     else
-        print_warning "Remote role template generation/upload failed - continuing with deployment"
+        print_warning "Remote role template generation failed - this is optional"
+        print_status "You can generate cross-account roles manually later if needed"
+        print_status "The main COA platform is functional without cross-account roles"
         return 0  # Don't fail the deployment for this optional step
     fi
 }
@@ -1538,6 +1631,10 @@ main() {
     # Handle cleanup-only mode
     if [[ "$CLEANUP_ONLY" == "true" ]]; then
         print_status "Running in comprehensive cleanup mode..."
+        
+        # Generate stack name for cleanup
+        generate_stack_name
+        
         check_aws_credentials
         
         echo "================================================================================"
@@ -1579,6 +1676,9 @@ main() {
         exit 0
     fi
 
+    # Generate stack name with date suffix if needed
+    generate_stack_name
+    
     # Validate resume stage and load previous configuration if resuming
     validate_resume_stage $RESUME_FROM_STAGE
 

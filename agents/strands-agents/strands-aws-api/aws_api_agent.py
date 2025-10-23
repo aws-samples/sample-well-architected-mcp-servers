@@ -1,67 +1,249 @@
 import os
+import re
+import subprocess
 import boto3
 from mcp import StdioServerParameters, stdio_client
 from strands import Agent, tool
 from strands.models import BedrockModel
 from strands.tools.mcp import MCPClient
 
-@tool
-def aws_api_agent(query: str) -> str:
+
+def validate_role_arn(role_arn: str) -> bool:
     """
-    Process and respond to AWS API and CLI related queries with comprehensive AWS service integration.
+    Validate that the role ARN has the correct format.
+    
+    Args:
+        role_arn: The role ARN to validate
+        
+    Returns:
+        True if the ARN format is valid, False otherwise
+    """
+    if not role_arn:
+        return False
+        
+    # AWS IAM role ARN pattern: arn:aws:iam::account-id:role/role-name
+    pattern = r'^arn:aws:iam::\d{12}:role/[a-zA-Z0-9+=,.@_-]+$'
+    return bool(re.match(pattern, role_arn))
+
+@tool
+def aws_api_agent(query: str, env=None, role_arn=None, account_id=None, external_id=None, session_name=None) -> str:
+    """
+    Process and respond to AWS API and CLI related queries with comprehensive AWS service integration and cross-account support.
 
     Args:
         query: The user's question about AWS operations, CLI commands, or service management
+        env: Optional environment variables dictionary
+        role_arn: Optional ARN of the role to assume for cross-account access
+        account_id: Optional AWS account ID (will construct role ARN as arn:aws:iam::ACCOUNT_ID:role/COAReadOnlyRole)
+        external_id: Optional external ID for enhanced security when assuming roles
+        session_name: Optional session name for the assumed role (defaults to 'aws-api-agent')
 
     Returns:
         A helpful response addressing user query with specific AWS CLI commands and guidance
+        
+    Note:
+        If both role_arn and account_id are provided, role_arn takes precedence.
+        If only account_id is provided, the role ARN will be constructed as:
+        arn:aws:iam::ACCOUNT_ID:role/COAReadOnlyRole
     """
 
     bedrock_model = BedrockModel(model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0")
 
     response = str()
+    print("debug", query, env, role_arn, account_id, external_id, session_name)
+    
+    # Basic validation before proceeding
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    mcp_server_script = os.path.join(current_dir, "src", "server.py")
+    
+    if not os.path.exists(mcp_server_script):
+        return f"Local MCP server not found at: {mcp_server_script}\n\nPlease ensure the AWS API MCP server files are properly installed in the src/ directory."
+    
+    # Handle account_id parameter - construct role ARN if needed
+    if account_id is not None and role_arn is None:
+        # Validate account_id format (12-digit number)
+        if not account_id.isdigit() or len(account_id) != 12:
+            raise ValueError(f"Invalid account ID format: {account_id}. Expected 12-digit number.")
+        
+        role_arn = f"arn:aws:iam::{account_id}:role/COAReadOnlyRole"
+        print(f"Constructed role ARN from account ID: {role_arn}")
+    elif account_id is not None and role_arn is not None:
+        print(f"Both role_arn and account_id provided. Using role_arn: {role_arn}")
+        print(f"Ignoring account_id: {account_id}")
+    
+    # Get current identity for debugging
+    sts_client = boto3.client('sts')
+    current_identity = sts_client.get_caller_identity()
+    print("Current identity:", current_identity)
 
     try:
-        env = {}
+        if env is None:
+            env = {}
+            
+        # Configure AssumeRole environment variables for the MCP server
+        if role_arn is not None:
+            # Validate role ARN format
+            if not validate_role_arn(role_arn):
+                raise ValueError(f"Invalid role ARN format: {role_arn}. Expected format: arn:aws:iam::ACCOUNT-ID:role/ROLE-NAME")
+                
+            print(f"Configuring cross-account access to: {role_arn}")
+            env["AWS_ASSUME_ROLE_ARN"] = role_arn
+            env["AWS_ASSUME_ROLE_SESSION_NAME"] = session_name or "aws-api-agent"
+            
+            if external_id is not None:
+                env["AWS_ASSUME_ROLE_EXTERNAL_ID"] = external_id
+                print(f"Using external ID for enhanced security")
+                
+            # Extract account ID from ARN for logging
+            account_id = role_arn.split(':')[4]
+            print(f"Target account ID: {account_id}")
+        else:
+            # Ensure AssumeRole environment variables are not set if not using cross-account
+            env.pop("AWS_ASSUME_ROLE_ARN", None)
+            env.pop("AWS_ASSUME_ROLE_SESSION_NAME", None)
+            env.pop("AWS_ASSUME_ROLE_EXTERNAL_ID", None)
+            print("Using same-account operations (no AssumeRole configured)")
+
+        # Set standard AWS environment variables
+        if os.getenv("AWS_REGION") is not None:
+            env["AWS_REGION"] = os.getenv("AWS_REGION")
+        else:
+            env["AWS_REGION"] = "us-east-1"  # Default region
+            
         if os.getenv("BEDROCK_LOG_GROUP_NAME") is not None:
             env["BEDROCK_LOG_GROUP_NAME"] = os.getenv("BEDROCK_LOG_GROUP_NAME")
         
         # Set AWS API MCP server specific environment variables
-        env["AWS_REGION"] = os.getenv("AWS_REGION", "us-east-1")
         env["AWS_API_MCP_WORKING_DIR"] = "/tmp/aws-api-mcp/workdir"
         env["FASTMCP_LOG_LEVEL"] = os.getenv("FASTMCP_LOG_LEVEL", "INFO")
         
-        mcp_server = MCPClient(
-            lambda: stdio_client(
-                StdioServerParameters(
-                    command="awslabs.aws-api-mcp-server",
-                    args=[],
-                    env=env,
+        print("MCP server environment:", {k: v for k, v in env.items() if not k.startswith("AWS_SECRET")})
+        
+        # Use local MCP server from the src directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # The MCP server is now located in the same directory under src/
+        mcp_server_path = current_dir
+        mcp_server_script = os.path.join(current_dir, "src", "run_server.py")
+        
+        # Ensure Python path includes the MCP server source and current directory
+        src_path = os.path.join(mcp_server_path, "src")
+        python_path = env.get("PYTHONPATH", "")
+        if python_path:
+            env["PYTHONPATH"] = f"{src_path}:{mcp_server_path}:{python_path}"
+        else:
+            env["PYTHONPATH"] = f"{src_path}:{mcp_server_path}"
+        
+        # Add additional environment variables for better debugging
+        env["AWS_API_MCP_WORKING_DIR"] = env.get("AWS_API_MCP_WORKING_DIR", "/tmp/aws-api-mcp/workdir")
+        env["FASTMCP_LOG_LEVEL"] = env.get("FASTMCP_LOG_LEVEL", "DEBUG")  # Enable debug logging
+        
+        # Ensure we have basic AWS configuration
+        if not env.get("AWS_REGION"):
+            env["AWS_REGION"] = "us-east-1"
+        
+        print("MCP server environment:", {k: v for k, v in env.items() if not k.startswith("AWS_SECRET")})
+        
+        # Check for wrapper script first, fallback to direct server.py
+        if not os.path.exists(mcp_server_script):
+            # Try direct server.py as fallback
+            direct_server_script = os.path.join(current_dir, "src", "server.py")
+            if os.path.exists(direct_server_script):
+                print(f"Wrapper script not found, using direct server.py: {direct_server_script}")
+                mcp_server_script = direct_server_script
+            else:
+                raise FileNotFoundError(
+                    f"Local MCP server not found at: {mcp_server_script}\n"
+                    f"Also checked: {direct_server_script}\n"
+                    f"Current working directory: {os.getcwd()}\n"
+                    f"Agent file location: {current_dir}\n"
+                    f"Please ensure the MCP server files are properly installed"
+                )
+            
+        print(f"Using local MCP server: {mcp_server_script}")
+        print(f"MCP server working directory: {mcp_server_path}")
+        
+        # Determine the Python command to use
+        python_cmd = "python"
+        
+        # Check if there's a virtual environment in the MCP server directory
+        venv_python = os.path.join(mcp_server_path, ".venv", "bin", "python")
+        if os.path.exists(venv_python):
+            python_cmd = venv_python
+            print(f"Using virtual environment Python: {venv_python}")
+        else:
+            print(f"Using system Python: {python_cmd}")
+        
+        # Test AWS credentials before starting MCP server
+        try:
+            test_session = boto3.Session()
+            test_sts = test_session.client('sts')
+            test_identity = test_sts.get_caller_identity()
+            print(f"AWS credentials test successful. Account: {test_identity.get('Account')}")
+        except Exception as cred_error:
+            print(f"AWS credentials test failed: {cred_error}")
+            print("This may cause issues with the MCP server. Please check your AWS configuration.")
+        
+        try:
+            print(f"Initializing MCP client with command: {python_cmd} {mcp_server_script}")
+            print(f"Working directory: {mcp_server_path}")
+            
+            # Test if we can run the server script directly first
+            test_cmd = [python_cmd, mcp_server_script, "--help"]
+            try:
+                test_result = subprocess.run(
+                    test_cmd, 
+                    cwd=mcp_server_path, 
+                    env=env, 
+                    capture_output=True, 
+                    text=True, 
+                    timeout=5
+                )
+                print(f"Server script test result: {test_result.returncode}")
+                if test_result.stderr:
+                    print(f"Server script stderr: {test_result.stderr[:200]}...")
+            except Exception as test_error:
+                print(f"Server script test failed: {test_error}")
+            
+            mcp_server = MCPClient(
+                lambda: stdio_client(
+                    StdioServerParameters(
+                        command=python_cmd,
+                        args=[mcp_server_script],  # Use wrapper script or direct script
+                        env=env,
+                        cwd=mcp_server_path,  # Set working directory to MCP server root
+                    )
                 )
             )
-        )
+            
+            print("MCP client created, attempting to connect...")
+        except Exception as client_error:
+            print(f"Failed to create MCP client: {client_error}")
+            raise
 
-        with mcp_server:
-
-            tools = mcp_server.list_tools_sync()
-            # Create the AWS API agent with comprehensive AWS CLI capabilities
-            mcp_agent = Agent(
-                model=bedrock_model,
-                system_prompt="""You are an AWS Operations Assistant with comprehensive access to AWS CLI functionality through the aws-api-mcp-server.
+        try:
+            with mcp_server:
+                tools = mcp_server.list_tools_sync()
+                # Create the AWS API agent with comprehensive AWS CLI capabilities and cross-account support
+                mcp_agent = Agent(
+                    model=bedrock_model,
+                    system_prompt="""You are an AWS Operations Assistant with comprehensive access to AWS CLI functionality through the aws-api-mcp-server, including cross-account operations support.
 
 ## Core Capabilities
-- Execute any AWS CLI command across 500+ AWS services
-- Provide AI-powered AWS CLI command suggestions from natural language
-- Validate commands before execution to prevent errors
-- Support cross-region and multi-account operations
-- Handle file-based AWS operations with proper path management
+- **Cross-Account AWS Operations**: Execute AWS CLI commands across multiple AWS accounts using AssumeRole
+- **Comprehensive AWS CLI Access**: Execute any AWS CLI command across 500+ AWS services
+- **AI-Powered Command Suggestions**: Provide intelligent AWS CLI command suggestions from natural language
+- **Command Validation**: Validate commands before execution to prevent errors
+- **Multi-Region Support**: Support cross-region operations with proper region handling
+- **File Operations**: Handle file-based AWS operations with proper path management
 
 ## Available Tools
 1. **call_aws**: Execute AWS CLI commands with validation and error handling
    - Use for specific AWS operations when you know the exact command
-   - Supports all AWS services and operations
+   - Supports all AWS services and operations with cross-account access
    - Includes automatic validation and security checks
    - Handles pagination and result formatting
+   - Automatically uses AssumeRole credentials when configured
 
 2. **suggest_aws_commands**: Get AI-powered command suggestions from natural language
    - Use when user requests are ambiguous or you need command options
@@ -69,10 +251,38 @@ def aws_api_agent(query: str) -> str:
    - Includes parameter explanations and usage examples
    - Best for exploratory or learning scenarios
 
-3. **get_execution_plan** (if available): Structured workflows for complex tasks
+3. **validate_credential_configuration**: Validate AWS credentials and test service access
+   - Use to verify cross-account AssumeRole configuration
+   - Tests AWS service connectivity and access
+   - Provides debugging information and recommendations
+   - Essential for troubleshooting credential issues
+   - Includes parameter explanations and usage examples
+   - Best for exploratory or learning scenarios
+
+3. **validate_credential_configuration**: Validate AWS credentials and test service access
+   - Use to verify cross-account AssumeRole configuration
+   - Tests AWS service connectivity and access
+   - Provides debugging information and recommendations
+   - Essential for troubleshooting credential issues
+
+4. **get_execution_plan** (if available): Structured workflows for complex tasks
    - Use for multi-step AWS operations
    - Provides tested procedures for common scenarios
    - Includes step-by-step guidance with validation
+
+## Cross-Account Operations
+When cross-account access is configured (AssumeRole environment variables are set):
+- All AWS CLI commands automatically use the assumed role credentials
+- Commands execute in the context of the target account
+- Always verify you're operating in the correct account by checking account IDs in responses
+- Be aware of permission limitations based on the assumed role's policies
+
+## Credential Validation Workflow
+For cross-account operations, always start with credential validation:
+1. **Validate Setup**: Use `validate_credential_configuration` to verify cross-account access
+2. **Check Account Context**: Confirm you're operating in the expected account
+3. **Test Connectivity**: Ensure AWS service access is working properly
+4. **Execute Operations**: Proceed with AWS CLI commands once validation passes
 
 ## Usage Guidelines
 
@@ -81,6 +291,7 @@ def aws_api_agent(query: str) -> str:
 - You know the exact AWS CLI command needed
 - Executing well-defined tasks (list resources, create/modify/delete operations)
 - Following up on previous commands with specific parameters
+- Cross-account operations when AssumeRole is configured
 
 ### When to use suggest_aws_commands:
 - User request is ambiguous or lacks specific details
@@ -88,58 +299,127 @@ def aws_api_agent(query: str) -> str:
 - User is learning AWS CLI and needs guidance
 - Breaking down complex requests into individual commands
 
+### When to use validate_credential_configuration:
+- Before starting cross-account operations
+- When troubleshooting credential or access issues
+- To verify AssumeRole configuration is working
+- When users report permission or authentication errors
+
 ### Command Best Practices:
 - Always include --region parameter for cross-region operations
 - Use absolute paths for file operations
 - Include required parameters to avoid errors
 - Use --query parameter only when specifically requested
 - Validate resource names and identifiers before use
+- For cross-account operations, verify account context in command outputs
 
 ## Response Format
-1. **Understand the Request**: Clarify what the user wants to accomplish
-2. **Choose the Right Tool**: Use call_aws for execution, suggest_aws_commands for exploration
-3. **Provide Context**: Explain what the command does and why it's appropriate
-4. **Show Results**: Present command output in a clear, organized format
-5. **Offer Next Steps**: Suggest follow-up actions or related commands
+1. **Account Context**: Clearly identify which account is being accessed
+2. **Understand the Request**: Clarify what the user wants to accomplish
+3. **Choose the Right Tool**: Use call_aws for execution, suggest_aws_commands for exploration
+4. **Provide Context**: Explain what the command does and why it's appropriate
+5. **Show Results**: Present command output in a clear, organized format
+6. **Verify Account**: Confirm operations are executing in the expected account
+7. **Offer Next Steps**: Suggest follow-up actions or related commands
 
 ## Security Considerations
 - Commands are validated before execution
+- Cross-account operations use temporary credentials via AssumeRole
 - Read-only operations are preferred when possible
 - Sensitive data in responses is handled appropriately
-- Cross-account operations require proper permissions
 - File operations are isolated to secure working directory
+- Always verify account context for cross-account operations
 
 ## Common Use Cases
-- **Resource Management**: List, create, modify, delete AWS resources
-- **Configuration**: Update service configurations and settings
-- **Monitoring**: Retrieve metrics, logs, and status information
-- **Security**: Manage IAM policies, security groups, and access controls
-- **Automation**: Script AWS operations and workflows
-- **Troubleshooting**: Diagnose issues and gather diagnostic information
+- **Cross-Account Resource Management**: List, create, modify, delete AWS resources across accounts
+- **Multi-Account Configuration**: Update service configurations across multiple accounts
+- **Cross-Account Monitoring**: Retrieve metrics, logs, and status information from target accounts
+- **Security Auditing**: Manage IAM policies, security groups, and access controls across accounts
+- **Automation**: Script AWS operations and workflows with cross-account support
+- **Troubleshooting**: Diagnose issues and gather diagnostic information across accounts
 
 ## Error Handling
 - Provide clear explanations for command failures
+- Handle AssumeRole-related errors with specific guidance
 - Suggest corrections for common mistakes
 - Offer alternative approaches when commands fail
 - Include relevant AWS documentation references
+- Provide cross-account troubleshooting guidance
 
-When users ask about AWS operations, CLI commands, or service management, use the available MCP tools to provide accurate, executable solutions with proper validation and security considerations.
+## Cross-Account Error Scenarios
+- **AssumeRole Failures**: Check role ARN, trust policies, and external IDs
+- **Permission Denied**: Verify assumed role has necessary permissions
+- **Account Mismatch**: Confirm operations are executing in the expected account
+- **Credential Expiration**: Handle temporary credential refresh scenarios
 
-Remember: You have access to the full AWS CLI through these tools. Be confident in executing commands and providing comprehensive AWS guidance.
+When users request AWS operations, CLI commands, or service management, use the available MCP tools to provide accurate, executable solutions with proper validation and security considerations. Always be aware of the account context and clearly communicate which account operations are being performed against.
+
+Remember: You have access to the full AWS CLI through these tools with cross-account capabilities. Be confident in executing commands while maintaining security best practices and account awareness.
 """,
                 tools=tools,
-            )
-            response = str(mcp_agent(query))
-            print("\n\n")
+                )
+                response = str(mcp_agent(query))
+                print("\n\n")
+        
+        except Exception as mcp_error:
+            print(f"MCP server connection or execution error: {mcp_error}")
+            raise Exception(f"MCP server error: {mcp_error}")
 
         if len(response) > 0:
+            # Log successful completion
+            if role_arn:
+                print(f"Successfully completed cross-account AWS operations for: {role_arn}")
+            else:
+                print("Successfully completed same-account AWS operations")
             return response
 
         return "I apologize, but I couldn't properly analyze your AWS request. Could you please rephrase or provide more context about what AWS operation you'd like to perform?"
 
     except Exception as e:
-        return f"Error processing your AWS query: {str(e)}"
+        error_msg = str(e)
+        print(f"Error in AWS operations: {error_msg}")
+        
+        # Provide more specific error guidance
+        if "AssumeRole" in error_msg:
+            return f"Cross-account access error: {error_msg}\n\nPlease verify:\n1. The target role ARN is correct\n2. The role trusts your current identity\n3. External ID matches (if required)\n4. Your current role has sts:AssumeRole permissions"
+        elif "AccessDenied" in error_msg or "NoCredentialsError" in error_msg:
+            return f"AWS credentials error: {error_msg}\n\nPlease ensure:\n1. AWS credentials are properly configured (run 'aws configure' or set environment variables)\n2. Your IAM user/role has the necessary permissions for AWS operations\n3. If using cross-account access, verify the AssumeRole configuration\n\nYou can use the 'validate_credential_configuration' tool to diagnose credential issues."
+        elif "FileNotFoundError" in error_msg and "server.py" in error_msg:
+            return f"Local MCP server error: {error_msg}\n\nThe local AWS API MCP server could not be found. Please ensure:\n1. The src/server.py file exists in the agent directory\n2. All required dependencies are installed\n3. The Python environment is properly configured"
+        elif "ImportError" in error_msg or "ModuleNotFoundError" in error_msg:
+            return f"Dependency error: {error_msg}\n\nMissing required dependencies. Please:\n1. Install dependencies: pip install -r requirements.txt\n2. Ensure FastMCP and other required packages are available\n3. Check that the Python environment is properly configured"
+        else:
+            return f"Error processing your AWS query: {error_msg}\n\nPlease check:\n1. AWS credentials and network connectivity\n2. Local MCP server configuration\n3. Required dependencies are installed\n\nFor detailed diagnostics, try using the 'validate_credential_configuration' tool."
 
 
 if __name__ == "__main__":
-    aws_api_agent("List all EC2 instances in us-east-1 region")
+    # Example 1: Same-account AWS operations
+    print("=== Same-Account AWS Operations ===")
+    result1 = aws_api_agent(
+        "List all EC2 instances in us-east-1 region and show their current status."
+    )
+    print(result1)
+    
+    print("\n" + "="*50 + "\n")
+    
+    # Example 2: Cross-account AWS operations using role_arn
+    print("=== Cross-Account AWS Operations (using role_arn) ===")
+    result2 = aws_api_agent(
+        "List all S3 buckets in the target account and check their encryption status.",
+        role_arn="arn:aws:iam::123456789012:role/COAReadOnlyRole",
+        external_id="your-external-id-here",  # Replace with actual external ID if required
+        session_name="aws-api-cross-account-operations"
+    )
+    print(result2)
+    
+    print("\n" + "="*50 + "\n")
+    
+    # Example 3: Cross-account AWS operations using account_id
+    print("=== Cross-Account AWS Operations (using account_id) ===")
+    result3 = aws_api_agent(
+        "Get the current caller identity and list all IAM roles in the target account.",
+        account_id="123456789012",  # Will construct arn:aws:iam::123456789012:role/COAReadOnlyRole
+        external_id="your-external-id-here",  # Replace with actual external ID if required
+        session_name="aws-api-cross-account-operations"
+    )
+    print(result3)
