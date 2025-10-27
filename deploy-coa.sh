@@ -799,6 +799,44 @@ cleanup_cloudformation_stack() {
     fi
 }
 
+# Function to clean up S3 source buckets (created outside CloudFormation)
+cleanup_s3_source_buckets() {
+    print_status "Cleaning up S3 source buckets..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    local buckets_deleted=0
+    local buckets_failed=0
+    
+    # Get account ID
+    local account_id
+    if account_id=$($aws_cmd sts get-caller-identity --query Account --output text 2>/dev/null); then
+        
+        # Source bucket pattern (matches the pattern used in deployment)
+        local source_bucket="${STACK_NAME}-source-${account_id}-${REGION}"
+        
+        print_status "Checking for source bucket: $source_bucket"
+        
+        if empty_s3_bucket_completely "$source_bucket"; then
+            ((buckets_deleted++))
+            print_success "Source bucket cleaned up: $source_bucket"
+        else
+            ((buckets_failed++))
+            print_warning "Failed to clean up source bucket: $source_bucket"
+        fi
+        
+    else
+        print_error "Failed to get AWS account ID"
+        return 1
+    fi
+    
+    # Summary
+    print_success "Source buckets processed: $buckets_deleted deleted, $buckets_failed failed"
+}
+
 # Function to clean up existing SSM parameters
 cleanup_existing_parameters() {
     print_status "Cleaning up existing SSM parameters..."
