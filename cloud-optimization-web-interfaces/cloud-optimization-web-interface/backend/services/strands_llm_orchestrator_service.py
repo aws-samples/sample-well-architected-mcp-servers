@@ -27,8 +27,9 @@ class StrandsLLMOrchestratorService:
     def __init__(self):
         self.region = get_config("AWS_DEFAULT_REGION", "us-east-1")
         
-        # Initialize StrandsAgent Discovery Service
-        self.strands_discovery = StrandsAgentDiscoveryService(region=self.region)
+        # Initialize StrandsAgent Discovery Service with dynamic parameter prefix
+        param_prefix = get_config('PARAM_PREFIX', 'coa')
+        self.strands_discovery = StrandsAgentDiscoveryService(region=self.region, param_prefix=param_prefix)
         
         # Agent routing configuration
         self.agent_routing_rules = {
@@ -76,9 +77,15 @@ class StrandsLLMOrchestratorService:
             
             # Discover available StrandsAgents
             agents = await self.strands_discovery.discover_strands_agents()
+            logger.info(f"Discovered {len(agents)} agents: {list(agents.keys())}")
+            
+            # Log detailed agent information
+            for agent_type, agent in agents.items():
+                logger.info(f"Agent {agent_type}: status={agent.status}, capabilities={agent.capabilities}, domains={list(agent.domains.keys())}")
             
             # Get available tools from all agents
             available_tools = await self.strands_discovery.get_available_tools()
+            logger.info(f"Available tools: {len(available_tools)}")
             
             # Set up session context
             session.context["strands_agents"] = {
@@ -99,13 +106,14 @@ class StrandsLLMOrchestratorService:
             system_prompt = self._generate_strands_system_prompt(agents, available_tools)
             session.context["system_prompt"] = system_prompt
             
-            logger.info(f"Session {session.session_id} initialized with {len(agents)} StrandsAgents and {len(available_tools)} tools")
+            healthy_agents = sum(1 for agent in agents.values() if agent.status == "HEALTHY")
+            logger.info(f"Session {session.session_id} initialized with {len(agents)} StrandsAgents ({healthy_agents} healthy) and {len(available_tools)} tools")
             
             return {
                 "status": "initialized",
                 "agents_count": len(agents),
                 "tools_count": len(available_tools),
-                "healthy_agents": sum(1 for agent in agents.values() if agent.status == "HEALTHY"),
+                "healthy_agents": healthy_agents,
                 "available_domains": list(set(
                     domain for agent in agents.values() 
                     for domain in agent.domains.keys()
@@ -115,6 +123,7 @@ class StrandsLLMOrchestratorService:
             
         except Exception as e:
             logger.error(f"Failed to initialize StrandsAgent session: {e}")
+            logger.exception("Full exception details:")
             return {"status": "error", "error": str(e)}
 
     def _generate_strands_system_prompt(
@@ -315,50 +324,88 @@ You should proactively suggest comprehensive analyses that span multiple domains
         # Get available agents from session context
         available_agents = session.context.get("strands_agents", {})
         
+        logger.info(f"Available agents: {list(available_agents.keys())}")
+        logger.info(f"Message: {message}")
+        
         if not available_agents:
+            logger.warning("No StrandsAgents available in session context")
             return None, "No StrandsAgents available"
+        
+        # Log agent statuses for debugging
+        for agent_type, agent_info in available_agents.items():
+            logger.info(f"Agent {agent_type}: status={agent_info.get('status')}, domains={agent_info.get('domains', [])}")
         
         # Score agents based on message content and routing rules
         agent_scores = {}
+        matched_keywords = []
         
         for domain, rules in self.agent_routing_rules.items():
             # Calculate keyword match score
-            keyword_matches = sum(
-                1 for keyword in rules["keywords"] 
-                if keyword in message_lower
-            )
+            keyword_matches = []
+            for keyword in rules["keywords"]:
+                if keyword in message_lower:
+                    keyword_matches.append(keyword)
             
-            if keyword_matches > 0:
+            if keyword_matches:
+                matched_keywords.extend(keyword_matches)
+                logger.info(f"Domain '{domain}' matched keywords: {keyword_matches}")
+                
                 # Check if preferred agent is available and healthy
                 preferred_agent = rules["preferred_agent"]
-                if (preferred_agent in available_agents and 
-                    available_agents[preferred_agent]["status"] == "HEALTHY"):
+                if preferred_agent in available_agents:
+                    agent_status = available_agents[preferred_agent]["status"]
+                    logger.info(f"Preferred agent '{preferred_agent}' status: {agent_status}")
                     
-                    agent_scores[preferred_agent] = agent_scores.get(preferred_agent, 0) + keyword_matches * 2
+                    if agent_status == "HEALTHY":
+                        agent_scores[preferred_agent] = agent_scores.get(preferred_agent, 0) + len(keyword_matches) * 2
+                        logger.info(f"Added score for preferred agent '{preferred_agent}': {len(keyword_matches) * 2}")
+                else:
+                    logger.warning(f"Preferred agent '{preferred_agent}' not found in available agents")
                 
                 # Check fallback agent
                 fallback_agent = rules["fallback_agent"]
-                if (fallback_agent in available_agents and 
-                    available_agents[fallback_agent]["status"] == "HEALTHY"):
+                if fallback_agent in available_agents:
+                    agent_status = available_agents[fallback_agent]["status"]
+                    logger.info(f"Fallback agent '{fallback_agent}' status: {agent_status}")
                     
-                    agent_scores[fallback_agent] = agent_scores.get(fallback_agent, 0) + keyword_matches
+                    if agent_status == "HEALTHY":
+                        agent_scores[fallback_agent] = agent_scores.get(fallback_agent, 0) + len(keyword_matches)
+                        logger.info(f"Added score for fallback agent '{fallback_agent}': {len(keyword_matches)}")
+                else:
+                    logger.warning(f"Fallback agent '{fallback_agent}' not found in available agents")
+        
+        logger.info(f"Agent scores: {agent_scores}")
+        logger.info(f"Matched keywords: {matched_keywords}")
         
         # Select agent with highest score
         if agent_scores:
             best_agent = max(agent_scores.items(), key=lambda x: x[1])
-            return best_agent[0], f"Keyword matching (score: {best_agent[1]})"
+            logger.info(f"Selected best agent: {best_agent[0]} with score {best_agent[1]}")
+            return best_agent[0], f"Keyword matching (score: {best_agent[1]}, keywords: {matched_keywords})"
         
         # Fallback: select any healthy dual-domain agent
+        logger.info("No keyword matches, trying fallback to dual-domain agent")
         for agent_type, agent_info in available_agents.items():
             if (agent_info["status"] == "HEALTHY" and 
                 len(agent_info.get("domains", [])) > 1):
+                logger.info(f"Selected dual-domain fallback agent: {agent_type}")
                 return agent_type, "Fallback to healthy dual-domain agent"
         
         # Last resort: any healthy agent
+        logger.info("No dual-domain agents, trying any healthy agent")
         for agent_type, agent_info in available_agents.items():
             if agent_info["status"] == "HEALTHY":
+                logger.info(f"Selected any healthy agent: {agent_type}")
                 return agent_type, "Fallback to any healthy agent"
         
+        # If no healthy agents, try any agent
+        logger.warning("No healthy agents found, trying any available agent")
+        if available_agents:
+            first_agent = next(iter(available_agents.keys()))
+            logger.info(f"Selected first available agent: {first_agent}")
+            return first_agent, "Fallback to first available agent (may be unhealthy)"
+        
+        logger.error("No StrandsAgents available at all")
         return None, "No healthy StrandsAgents available"
 
     def _extract_structured_data(self, agent_response: Dict[str, Any]) -> Optional[Dict[str, Any]]:

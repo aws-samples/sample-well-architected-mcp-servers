@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🛡️ AWS Well-Architected Security Assistant - Local Test</title>
+    <title>🛡️ AWS Well-Architected Security Assistant - Test Interface</title>
     <!-- Marked.js for markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
     <style>
@@ -41,8 +41,8 @@
             font-weight: 700;
         }
 
-        .local-badge {
-            background: #28a745;
+        .test-badge {
+            background: #007bff;
             color: white;
             padding: 5px 15px;
             border-radius: 20px;
@@ -64,8 +64,8 @@
             border-radius: 20px;
             padding: 30px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+            max-width: 1000px;
             width: 100%;
-            max-width: 100%;
             height: 80vh;
             backdrop-filter: blur(10px);
             display: flex;
@@ -81,8 +81,6 @@
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             border-radius: 12px;
             border: 1px solid #e0e0e0;
-            flex-wrap: wrap;
-            gap: 15px;
         }
 
         .status-indicator {
@@ -137,111 +135,6 @@
         .test-btn:hover {
             background: #0056b3;
             transform: translateY(-1px);
-        }
-
-        /* Dropdown styles */
-        .dropdown {
-            position: relative;
-            display: inline-block;
-        }
-
-        .dropdown-btn {
-            padding: 8px 16px;
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .dropdown-btn:hover {
-            background: #1e7e34;
-            transform: translateY(-1px);
-        }
-
-        .dropdown-btn::after {
-            content: "▼";
-            font-size: 10px;
-            transition: transform 0.3s ease;
-        }
-
-        .dropdown.open .dropdown-btn::after {
-            transform: rotate(180deg);
-        }
-
-        .dropdown-content {
-            display: none;
-            position: absolute;
-            background-color: white;
-            min-width: 200px;
-            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
-            border-radius: 8px;
-            z-index: 1000;
-            top: 100%;
-            left: 0;
-            margin-top: 5px;
-            border: 1px solid #e0e0e0;
-        }
-
-        .dropdown.open .dropdown-content {
-            display: block;
-        }
-
-        .dropdown-item {
-            color: #333;
-            padding: 12px 16px;
-            text-decoration: none;
-            display: block;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-            border: none;
-            background: none;
-            width: 100%;
-            text-align: left;
-            font-size: 14px;
-        }
-
-        .dropdown-item:hover {
-            background-color: #f8f9fa;
-        }
-
-        .dropdown-item:first-child {
-            border-radius: 8px 8px 0 0;
-        }
-
-        .dropdown-item:last-child {
-            border-radius: 0 0 8px 8px;
-        }
-
-
-
-        .aws-account-section {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 0 15px;
-        }
-
-        .aws-account-label {
-            font-size: 14px;
-            font-weight: 600;
-            color: #232F3E;
-            white-space: nowrap;
-        }
-
-        .aws-account-input {
-            padding: 6px 12px;
-            border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            font-size: 14px;
-            width: 150px;
-            background: white;
-            min-width: 120px;
         }
 
         .chat-messages {
@@ -359,7 +252,6 @@
             font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
             font-size: 0.9em;
             line-height: 1.4;
-            max-width: 100%;
         }
 
         .message-content pre code {
@@ -413,8 +305,6 @@
             color: white;
             border: none;
         }
-
-
 
         .input-container {
             display: flex;
@@ -549,110 +439,9 @@
             font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
             font-size: 12px;
             line-height: 1.4;
-            overflow-y: auto;
             overflow-x: auto;
+            border-top: 1px solid #e0e0e0;
             color: #495057;
-            max-height: 400px;
-            min-height: 150px;
-            flex: 1;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            position: relative;
-            transition: border-color 0.3s ease, box-shadow 0.3s ease;
-            --fade-opacity: 0.8;
-        }
-
-        .json-raw:hover {
-            border-color: #007bff;
-            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
-        }
-
-        .json-raw::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 20px;
-            background: linear-gradient(transparent, rgba(248, 249, 250, var(--fade-opacity)));
-            pointer-events: none;
-            border-radius: 0 0 8px 8px;
-            transition: opacity 0.3s ease;
-        }
-
-        .json-raw strong {
-            position: sticky;
-            top: 0;
-            background: #f8f9fa;
-            padding-bottom: 10px;
-            display: block;
-            border-bottom: 1px solid #dee2e6;
-            margin-bottom: 10px;
-            z-index: 1;
-        }
-
-        .scroll-hint {
-            float: right;
-            opacity: 0.6;
-            font-size: 14px;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 0.6; }
-            50% { opacity: 1; }
-        }
-
-        .json-raw pre {
-            margin: 0;
-            background: none;
-            padding: 0;
-            border-radius: 0;
-            overflow: visible;
-        }
-
-        /* Custom scrollbar styling for better UX */
-        .human-summary::-webkit-scrollbar,
-        .json-raw::-webkit-scrollbar {
-            width: 12px;
-            height: 12px;
-        }
-
-        .human-summary::-webkit-scrollbar-track,
-        .json-raw::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 6px;
-            margin: 2px;
-        }
-
-        .human-summary::-webkit-scrollbar-thumb,
-        .json-raw::-webkit-scrollbar-thumb {
-            background: #c1c1c1;
-            border-radius: 6px;
-            border: 2px solid #f1f1f1;
-        }
-
-        .human-summary::-webkit-scrollbar-thumb:hover,
-        .json-raw::-webkit-scrollbar-thumb:hover {
-            background: #a8a8a8;
-        }
-
-        .human-summary::-webkit-scrollbar-corner,
-        .json-raw::-webkit-scrollbar-corner {
-            background: #f1f1f1;
-        }
-
-        /* Firefox scrollbar styling */
-        .json-raw {
-            scrollbar-width: thin;
-            scrollbar-color: #c1c1c1 #f1f1f1;
-        }
-
-        /* Responsive Design */
-        @media (max-width: 1200px) {
-            .chat-container {
-                margin: 0 20px;
-            }
         }
 
         @media (max-width: 768px) {
@@ -663,177 +452,14 @@
             .chat-container {
                 height: 90vh;
                 padding: 20px;
-                margin: 0 10px;
-                border-radius: 15px;
-            }
-
-            .header {
-                padding: 15px;
             }
 
             .header h1 {
                 font-size: 1.8em;
             }
 
-            .local-badge {
-                display: block;
-                margin: 10px auto 0;
-                text-align: center;
-                width: fit-content;
-            }
-
-            .connection-status {
-                flex-direction: column;
-                align-items: stretch;
-                gap: 15px;
-            }
-
-            .status-indicator {
-                justify-content: center;
-            }
-
-            .aws-account-section {
-                margin: 0;
-                justify-content: center;
-                flex-wrap: wrap;
-            }
-
-            .aws-account-input {
-                width: 100%;
-                max-width: 200px;
-            }
-
             .test-buttons {
                 justify-content: center;
-            }
-
-            .test-btn {
-                flex: 1;
-                min-width: 120px;
-            }
-
-            .input-container {
-                flex-direction: column;
-                gap: 10px;
-            }
-
-            .message-input {
-                border-radius: 15px;
-            }
-
-            .send-btn {
-                border-radius: 15px;
-                width: 100%;
-            }
-
-            .message {
-                gap: 10px;
-            }
-
-            .message-avatar {
-                width: 35px;
-                height: 35px;
-                font-size: 16px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .main-content {
-                padding: 5px;
-            }
-
-            .chat-container {
-                padding: 15px;
-                margin: 0 5px;
-                border-radius: 10px;
-                height: 95vh;
-            }
-
-            .header {
-                padding: 10px;
-            }
-
-            .header h1 {
-                font-size: 1.5em;
-            }
-
-            .local-badge {
-                font-size: 0.7em;
-                padding: 4px 12px;
-            }
-
-            .connection-status {
-                padding: 12px;
-            }
-
-            .test-buttons {
-                flex-direction: column;
-            }
-
-            .test-btn {
-                width: 100%;
-                margin: 2px 0;
-            }
-
-            .dropdown {
-                width: 100%;
-            }
-
-            .dropdown-btn {
-                width: 100%;
-                justify-content: center;
-                margin: 2px 0;
-            }
-
-            .dropdown-content {
-                width: 100%;
-                left: 0;
-                right: 0;
-            }
-
-
-
-            .message-content {
-                padding: 12px 15px;
-            }
-
-            .json-section {
-                margin: 10px 0;
-            }
-
-            .json-summary {
-                padding: 12px 15px;
-                font-size: 14px;
-            }
-
-            .json-raw {
-                padding: 15px;
-                font-size: 11px;
-                max-height: 300px; /* Slightly smaller on mobile */
-                min-height: 120px;
-            }
-        }
-
-        /* Landscape orientation on mobile */
-        @media (max-width: 768px) and (orientation: landscape) {
-            .chat-container {
-                height: 85vh;
-            }
-
-            .header {
-                padding: 10px;
-            }
-
-            .header h1 {
-                font-size: 1.6em;
-            }
-        }
-
-        /* Large screens */
-        @media (min-width: 1400px) {
-            .chat-container {
-                max-width: 1200px;
-                margin: 0 auto;
             }
         }
     </style>
@@ -843,7 +469,7 @@
 <body>
     <div class="app-container">
         <div class="header">
-            <h1>🛡️ AWS Well-Architected Security Assistant<span class="local-badge">LOCAL TEST</span></h1>
+            <h1>🛡️ AWS Well-Architected Security Assistant<span class="test-badge">TEST INTERFACE</span></h1>
         </div>
 
         <div class="main-content">
@@ -851,27 +477,29 @@
                 <div class="connection-status">
                     <div class="status-indicator">
                         <div class="status-dot" id="statusDot"></div>
-                        <span id="statusText">Connecting to localhost:8000...</span>
+                        <span id="statusText">Ready to connect...</span>
                     </div>
-                    <div class="aws-account-section">
-                        <label for="awsAccountId" class="aws-account-label">AWS Account ID:</label>
-                        <input type="text" id="awsAccountId" placeholder="123456789012" class="aws-account-input"
+                    <div style="display: flex; align-items: center; gap: 10px; margin: 0 15px;">
+                        <label for="environmentSelect" style="font-size: 14px; font-weight: 600; color: #232F3E;">Environment:</label>
+                        <select id="environmentSelect" onchange="switchEnvironment()" 
+                            style="padding: 6px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; background: white;">
+                            <option value="local">Local (localhost:8000)</option>
+                            <option value="loadbalancer">Deployed ALB</option>
+                            <option value="cloudfront">Deployed CloudFront</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin: 0 15px;">
+                        <label for="awsAccountId" style="font-size: 14px; font-weight: 600; color: #232F3E;">AWS Account
+                            ID:</label>
+                        <input type="text" id="awsAccountId" placeholder="384612698411" value="384612698411"
+                            style="padding: 6px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; width: 150px; background: white;"
                             maxlength="12" pattern="[0-9]{12}">
                     </div>
                     <div class="test-buttons">
-                        <button class="test-btn" onclick="testConnection()" title="Test Connection">🔄</button>
-
-                        <div class="dropdown" id="securityDropdown">
-                            <button class="dropdown-btn" onclick="toggleDropdown('securityDropdown')">
-                                🛡️ Security
-                            </button>
-                            <div class="dropdown-content">
-                                <button class="dropdown-item" onclick="testSecurityServices(); closeDropdown('securityDropdown')">Check Security Services</button>
-                                <button class="dropdown-item" onclick="testSecurityFindings(); closeDropdown('securityDropdown')">List Security Findings</button>
-                                <button class="dropdown-item" onclick="testStorageEncryption(); closeDropdown('securityDropdown')">Check Storage Encryption</button>
-                                <button class="dropdown-item" onclick="testNetworkSecurity(); closeDropdown('securityDropdown')">Check Network Security</button>
-                            </div>
-                        </div>
+                        <button class="test-btn" onclick="testConnection()">Test Connection</button>
+                        <button class="test-btn" onclick="testSecurityServices()">Security Services</button>
+                        <button class="test-btn" onclick="testSecurityFindings()">Security Findings</button>
+                        <button class="test-btn" onclick="testStorageEncryption()">Storage Encryption</button>
                         <button class="test-btn" onclick="clearMessages()">Clear Chat</button>
                     </div>
                 </div>
@@ -898,73 +526,151 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'http://localhost:8000';
+        // Configuration for deployed stack
+        const DEPLOYED_CONFIG = {
+            // CloudFront URL (HTTPS)
+            cloudfront: 'https://d1n3sowps9ww6m.cloudfront.net',
+            // Load Balancer URL (HTTP)
+            loadbalancer: 'http://coa-1021-alb-98043957.us-east-1.elb.amazonaws.com',
+            // Local development
+            local: 'http://localhost:8000'
+        };
+
+        // Auto-detect environment or allow manual selection
+        let API_BASE_URL = DEPLOYED_CONFIG.local; // Default to local
         let isConnected = false;
 
         // Initialize the app
         window.addEventListener('load', function () {
             const welcomeMessage = `# Welcome to the AWS Well-Architected Security Assistant! 🛡️
 
-This is the **local testing interface**. Backend is running on \`localhost:8000\`.
+This is the **testing interface** that can connect to different environments:
 
-⚠️ **Note**: The MCP security tools are not yet connected. The backend is currently in demo mode.
+## Available Environments:
+- **Local**: Development backend on \`localhost:8000\`
+- **Deployed ALB**: Direct connection to Application Load Balancer
+- **Deployed CloudFront**: Production CloudFront distribution
 
-## Quick Actions:
-- Use the **🛡️ Security** dropdown menu to access security analysis tools
-- The system automatically selects the best agent for your requests
+## Current Configuration:
+- **Stack**: coa-1021
+- **Region**: us-east-1
+- **Account**: 384612698411
 
-### Available Tools:
-- **Check Security Services** - Verify enabled security services
-- **List Security Findings** - Review security issues
-- **Check Storage Encryption** - Analyze data protection at rest
-- **Check Network Security** - Examine data protection in transit
+Select your environment from the dropdown and click "Test Connection" to get started!
 
-## To enable full functionality, you need to:
-1. Deploy the MCP security server
-2. Configure the MCP connection
-
-For now, you can test basic chat functionality with **markdown support**!
-
-### Markdown Features Supported:
-- **Bold text** and *italic text*
-- \`inline code\` and code blocks
-- Lists and tables
-- Headers and blockquotes
-- Links and more!`;
+### Features Available:
+- **Security Services Check**: Verify AWS security services status
+- **Security Findings**: Get security findings from GuardDuty, Security Hub, etc.
+- **Storage Encryption**: Check encryption status of S3, EBS, RDS resources
+- **Full Markdown Support**: Rich text formatting in responses`;
 
             addMessage('assistant', welcomeMessage);
-            testConnection();
+            
+            // Auto-detect if we're running on the deployed domain
+            if (window.location.hostname.includes('cloudfront.net') || window.location.hostname.includes('amazonaws.com')) {
+                document.getElementById('environmentSelect').value = 'cloudfront';
+                switchEnvironment();
+            }
         });
+
+        function switchEnvironment() {
+            const select = document.getElementById('environmentSelect');
+            const selectedEnv = select.value;
+            
+            API_BASE_URL = DEPLOYED_CONFIG[selectedEnv];
+            
+            const statusText = document.getElementById('statusText');
+            statusText.textContent = `Switched to ${selectedEnv} environment: ${API_BASE_URL}`;
+            
+            // Reset connection status
+            isConnected = false;
+            document.getElementById('statusDot').classList.remove('connected');
+            
+            // Show environment-specific message
+            let envMessage = '';
+            switch(selectedEnv) {
+                case 'local':
+                    envMessage = '🏠 **Switched to Local Environment**\n\nMake sure your local backend is running on port 8000.';
+                    break;
+                case 'loadbalancer':
+                    envMessage = '⚖️ **Switched to Deployed ALB**\n\nConnecting directly to the Application Load Balancer. This bypasses CloudFront caching.';
+                    break;
+                case 'cloudfront':
+                    envMessage = '☁️ **Switched to CloudFront**\n\nUsing the production CloudFront distribution with global CDN.';
+                    break;
+            }
+            addMessage('assistant', envMessage);
+            
+            // Auto-test connection
+            setTimeout(testConnection, 1000);
+        }
 
         async function testConnection() {
             const statusDot = document.getElementById('statusDot');
             const statusText = document.getElementById('statusText');
+            const currentEnv = document.getElementById('environmentSelect').value;
 
             try {
                 statusText.textContent = 'Testing connection...';
                 statusDot.classList.remove('connected');
 
+                // For deployed environments, we might need to handle CORS differently
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+
+                // Add authentication for deployed environments
+                if (currentEnv !== 'local') {
+                    headers['Authorization'] = 'Bearer test-token'; // This would normally be a real token
+                }
+
                 const response = await fetch(`${API_BASE_URL}/health`, {
                     method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: headers,
+                    // Add credentials for deployed environments
+                    credentials: currentEnv !== 'local' ? 'include' : 'same-origin'
                 });
 
                 if (response.ok) {
                     const data = await response.json();
                     isConnected = true;
                     statusDot.classList.add('connected');
-                    statusText.textContent = `Connected to ${API_BASE_URL} - ${data.status || 'OK'}`;
-                    addMessage('assistant', '✅ **Successfully connected to local backend!**\n\nYou can now send messages and they will be processed with full markdown support.');
+                    statusText.textContent = `Connected to ${currentEnv} - ${data.status || 'OK'}`;
+                    
+                    let successMessage = '';
+                    switch(currentEnv) {
+                        case 'local':
+                            successMessage = '✅ **Successfully connected to local backend!**\n\nYou can now test the full functionality locally.';
+                            break;
+                        case 'loadbalancer':
+                            successMessage = '✅ **Successfully connected to deployed ALB!**\n\nConnected directly to the Application Load Balancer. Backend container is running.';
+                            break;
+                        case 'cloudfront':
+                            successMessage = '✅ **Successfully connected to CloudFront!**\n\nConnected to the production deployment with global CDN.';
+                            break;
+                    }
+                    addMessage('assistant', successMessage);
                 } else {
-                    throw new Error(`HTTP ${response.status}`);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
                 isConnected = false;
                 statusDot.classList.remove('connected');
                 statusText.textContent = `Connection failed: ${error.message}`;
-                addMessage('assistant', '❌ **Failed to connect to local backend.**\n\nMake sure `start_server.py` is running on port 8000.');
+                
+                let errorMessage = '';
+                switch(currentEnv) {
+                    case 'local':
+                        errorMessage = '❌ **Failed to connect to local backend.**\n\nMake sure your local development server is running on port 8000.';
+                        break;
+                    case 'loadbalancer':
+                        errorMessage = '❌ **Failed to connect to deployed ALB.**\n\nThe backend container might still be starting up. Check the ECS service status.';
+                        break;
+                    case 'cloudfront':
+                        errorMessage = '❌ **Failed to connect to CloudFront.**\n\nThe deployment might still be in progress. Try the ALB endpoint directly.';
+                        break;
+                }
+                addMessage('assistant', errorMessage);
             }
         }
 
@@ -980,42 +686,12 @@ For now, you can test basic chat functionality with **markdown support**!
             sendTestMessage("Analyze my storage encryption");
         }
 
-        function testNetworkSecurity() {
-            sendTestMessage("Check my network security");
-        }
-
-        function toggleDropdown(dropdownId) {
-            const dropdown = document.getElementById(dropdownId);
-            const isOpen = dropdown.classList.contains('open');
-            
-            // Close all dropdowns first
-            document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('open'));
-            
-            // Toggle the clicked dropdown
-            if (!isOpen) {
-                dropdown.classList.add('open');
-            }
-        }
-
-        function closeDropdown(dropdownId) {
-            document.getElementById(dropdownId).classList.remove('open');
-        }
-
-        // Close dropdowns when clicking outside
-        document.addEventListener('click', function(event) {
-            if (!event.target.closest('.dropdown')) {
-                document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('open'));
-            }
-        });
-
-
-
         function sendTestMessage(message) {
             document.getElementById('messageInput').value = message;
             sendMessage();
         }
 
-        function addMessage(role, content, toolExecutions = [], structuredData = null, humanSummary = null, agentInfo = null) {
+        function addMessage(role, content, toolExecutions = [], structuredData = null, humanSummary = null) {
             const messagesContainer = document.getElementById('messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
@@ -1250,22 +926,30 @@ For now, you can test basic chat functionality with **markdown support**!
             try {
                 const requestBody = {
                     message: message,
-                    session_id: 'local-test-session-' + Date.now(),
-                    context: {}
+                    session_id: 'test-session-' + Date.now()
                 };
-
-
 
                 // Include AWS Account ID if provided
                 if (awsAccountId) {
                     requestBody.aws_account_id = awsAccountId;
                 }
 
-                const response = await fetch(`${API_BASE_URL}/api/chat/local`, {
+                const currentEnv = document.getElementById('environmentSelect').value;
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+
+                // Add appropriate authentication based on environment
+                if (currentEnv === 'local') {
+                    headers['Authorization'] = 'Bearer local-test-token';
+                } else {
+                    headers['Authorization'] = 'Bearer test-token'; // For deployed environments
+                }
+
+                const response = await fetch(`${API_BASE_URL}/api/chat`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: headers,
+                    credentials: currentEnv !== 'local' ? 'include' : 'same-origin',
                     body: JSON.stringify(requestBody)
                 });
 

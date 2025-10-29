@@ -73,7 +73,13 @@ class AgentInfo:
         
         # Common attributes
         self.capabilities = self.metadata.get("capabilities", [])
-        self.framework = self.metadata.get("framework", "bedrock")
+        
+        # Determine framework based on runtime type and metadata
+        if self.runtime_type == AgentType.BEDROCK_AGENTCORE:
+            self.framework = self.metadata.get("framework", "strands")  # Default to "strands" for AgentCore
+        else:
+            self.framework = self.metadata.get("framework", "bedrock")
+            
         self.status = self.metadata.get("status", "UNKNOWN")
         self.model_id = self.metadata.get("model_id", "unknown")
 
@@ -185,8 +191,9 @@ class EnhancedBedrockAgentService:
             # Get all parameters under both /coa/agent/ and /coa/agents/ with pagination
             all_parameters = []
             
-            # Search both legacy (/coa/agent/) and new (/coa/agents/) paths
-            search_paths = ["/coa/agent/", "/coa/agents/"]
+            # Search paths using dynamic parameter prefix
+            param_prefix = get_config('PARAM_PREFIX', 'coa')
+            search_paths = [f"/{param_prefix}/agent/", f"/{param_prefix}/agentcore/", f"/{param_prefix}/agents/"]
             
             for search_path in search_paths:
                 logger.info(f"Searching for agents in {search_path}")
@@ -217,9 +224,9 @@ class EnhancedBedrockAgentService:
             agent_params = {}
             for param in all_parameters:
                 path_parts = param["Name"].split("/")
-                # Handle both /coa/agent/{agent_type}/{param_name} and /coa/agents/{agent_type}/{param_name}
+                # Handle /coa/agent/{agent_type}/{param_name}, /coa/agentcore/{agent_type}/{param_name}, and /coa/agents/{agent_type}/{param_name}
                 if len(path_parts) >= 4:
-                    if path_parts[2] in ["agent", "agents"]:
+                    if path_parts[2] in ["agent", "agentcore", "agents"]:
                         agent_type = path_parts[3]
                         param_name = path_parts[4] if len(path_parts) > 4 else "root"
 
@@ -244,9 +251,23 @@ class EnhancedBedrockAgentService:
                     agent_id = params.get("agent_id") or params.get("agent-id")
                     agent_alias_id = params.get("agent_alias_id") or params.get("alias-id")
 
+                    # Fault tolerance: Use agent_type as agent_id if agent_id is missing
+                    if not agent_id and agent_type:
+                        agent_id = agent_type
+                        logger.info(f"Using agent_type '{agent_type}' as agent_id (fault tolerance)")
+
                     if agent_id:
                         # Determine runtime type
                         runtime_type = self._determine_runtime_type(params, metadata)
+                        
+                        # Generate default ARN if missing (fault tolerance)
+                        agent_arn = params.get("agent_arn")
+                        if not agent_arn:
+                            if runtime_type == AgentType.BEDROCK_AGENTCORE:
+                                agent_arn = f"arn:aws:bedrock-agentcore:us-east-1:unknown:agent/{agent_id}"
+                            else:
+                                agent_arn = f"arn:aws:bedrock:us-east-1:unknown:agent/{agent_id}"
+                            logger.info(f"Generated default ARN for agent '{agent_type}': {agent_arn}")
                         
                         agent_info = AgentInfo(
                             agent_type=agent_type,
@@ -256,13 +277,13 @@ class EnhancedBedrockAgentService:
                             metadata=metadata,
                             endpoint_url=params.get("endpoint_url"),
                             health_check_url=params.get("health_check_url"),
-                            agent_arn=params.get("agent_arn"),
+                            agent_arn=agent_arn,
                         )
 
                         self.discovered_agents[agent_type] = agent_info
                         logger.info(f"Discovered agent: {agent_info}")
                     else:
-                        logger.warning(f"Agent {agent_type} missing required agent_id parameter")
+                        logger.warning(f"Agent {agent_type} has no usable identifier - skipping")
 
                 except Exception as e:
                     logger.error(f"Failed to process agent {agent_type}: {e}")

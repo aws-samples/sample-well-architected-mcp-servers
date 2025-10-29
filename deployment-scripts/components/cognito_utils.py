@@ -22,9 +22,15 @@ Utility functions for integrating with shared Cognito user pool
 """
 
 import logging
+import os
+import sys
 from typing import Any, Dict, Optional
 
 import boto3
+
+# Add parent directory to path to import configuration manager
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.config_manager import DeploymentConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -78,17 +84,26 @@ class SharedCognitoClient:
         return self._config_cache
 
     def _get_config_from_parameter_store(self) -> Dict[str, str]:
-        """Get configuration from Parameter Store using standardized paths"""
+        """Get configuration from Parameter Store using dynamic paths"""
+        # Get dynamic parameter prefix from configuration
+        try:
+            config_manager = DeploymentConfigManager()
+            cognito_path = config_manager.get_parameter_path('cognito')
+        except Exception as e:
+            logger.warning(f"Failed to load configuration manager: {e}")
+            logger.warning("Falling back to legacy parameter paths")
+            cognito_path = "/coa/cognito"
+        
         parameter_names = [
-            "/coa/cognito/user_pool_id",
-            "/coa/cognito/web_app_client_id",
-            "/coa/cognito/api_client_id",
-            "/coa/cognito/mcp_server_client_id",
-            "/coa/cognito/identity_pool_id",
-            "/coa/cognito/user_pool_domain",
-            "/coa/cognito/discovery_url",
-            "/coa/cognito/region",
-            "/coa/cognito/user_pool_arn",
+            f"{cognito_path}/user_pool_id",
+            f"{cognito_path}/web_app_client_id",
+            f"{cognito_path}/api_client_id",
+            f"{cognito_path}/mcp_server_client_id",
+            f"{cognito_path}/identity_pool_id",
+            f"{cognito_path}/user_pool_domain",
+            f"{cognito_path}/discovery_url",
+            f"{cognito_path}/region",
+            f"{cognito_path}/user_pool_arn",
         ]
 
         try:
@@ -101,24 +116,24 @@ class SharedCognitoClient:
                 name = param["Name"]
                 value = param["Value"]
 
-                # Map parameter names to output keys
-                if name == "/coa/cognito/user_pool_id":
+                # Map parameter names to output keys using dynamic paths
+                if name == f"{cognito_path}/user_pool_id":
                     config["UserPoolId"] = value
-                elif name == "/coa/cognito/web_app_client_id":
+                elif name == f"{cognito_path}/web_app_client_id":
                     config["WebAppClientId"] = value
-                elif name == "/coa/cognito/api_client_id":
+                elif name == f"{cognito_path}/api_client_id":
                     config["APIClientId"] = value
-                elif name == "/coa/cognito/mcp_server_client_id":
+                elif name == f"{cognito_path}/mcp_server_client_id":
                     config["MCPServerClientId"] = value
-                elif name == "/coa/cognito/identity_pool_id":
+                elif name == f"{cognito_path}/identity_pool_id":
                     config["IdentityPoolId"] = value
-                elif name == "/coa/cognito/user_pool_domain":
+                elif name == f"{cognito_path}/user_pool_domain":
                     config["UserPoolDomain"] = value
-                elif name == "/coa/cognito/discovery_url":
+                elif name == f"{cognito_path}/discovery_url":
                     config["DiscoveryUrl"] = value
-                elif name == "/coa/cognito/region":
+                elif name == f"{cognito_path}/region":
                     config["Region"] = value
-                elif name == "/coa/cognito/user_pool_arn":
+                elif name == f"{cognito_path}/user_pool_arn":
                     config["UserPoolArn"] = value
 
             # Check if we got all required parameters

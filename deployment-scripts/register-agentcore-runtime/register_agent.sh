@@ -29,6 +29,15 @@ DEFAULT_REGION="us-east-1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INTERACTIVE_SCRIPT="$SCRIPT_DIR/interactive_agent_registration.py"
 
+# Source global configuration
+CONFIG_LOADER="$SCRIPT_DIR/../utils/load_config.sh"
+if [ -f "$CONFIG_LOADER" ]; then
+    source "$CONFIG_LOADER"
+else
+    print_error "Global configuration loader not found: $CONFIG_LOADER"
+    exit 1
+fi
+
 # Helper functions
 print_header() {
     echo -e "\n${BOLD}${BLUE}============================================================${NC}"
@@ -221,23 +230,36 @@ main() {
     print_success "Prerequisites validated"
     echo ""
     
+    # Load global configuration
+    print_step "Step 2: Loading global configuration..."
+    if load_deployment_config; then
+        print_success "Configuration loaded successfully"
+        print_info "Using parameter prefix: $PARAM_PREFIX"
+        print_info "Stack name: $STACK_NAME"
+    else
+        print_error "Failed to load global configuration"
+        print_info "Please ensure deployment-config.json exists and is valid"
+        exit 1
+    fi
+    echo ""
+    
     # Validate AWS setup
-    print_step "Step 2: Validating AWS setup..."
+    print_step "Step 3: Validating AWS setup..."
     validate_aws_setup
     echo ""
     
     # Check agentcore CLI
-    print_step "Step 3: Checking AgentCore CLI..."
+    print_step "Step 4: Checking AgentCore CLI..."
     check_agentcore_cli
     echo ""
     
     # Launch interactive tool
-    print_step "Step 4: Launching interactive registration tool..."
+    print_step "Step 5: Launching interactive registration tool..."
     print_info "Starting interactive session..."
     echo ""
     
-    # Execute the Python script
-    python3 "$INTERACTIVE_SCRIPT" --region "$REGION" --log-level "$LOG_LEVEL"
+    # Execute the Python script with stack prefix
+    python3 "$INTERACTIVE_SCRIPT" --region "$REGION" --log-level "$LOG_LEVEL" --stack-prefix "$PARAM_PREFIX"
     
     # Check exit code
     EXIT_CODE=$?

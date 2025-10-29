@@ -530,7 +530,19 @@
 <body>
     <div class="app-container">
         <div class="header">
-            <h1>🛡️ AWS Well-Architected Security Assistant</h1>
+            <h1>🛡️ AWS Cloud Optimization Assistant</h1>
+            <div class="nav-links" style="text-align: center; margin-top: 15px; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                <a href="agent-management.html" style="color: #232F3E; text-decoration: none; font-weight: 500; padding: 8px 16px; border: 2px solid #232F3E; border-radius: 20px; transition: all 0.3s ease;" 
+                   onmouseover="this.style.background='#232F3E'; this.style.color='white';" 
+                   onmouseout="this.style.background='transparent'; this.style.color='#232F3E';">
+                    🤖 Agent Management
+                </a>
+                <a href="backend-instructions.html" style="color: #232F3E; text-decoration: none; font-weight: 500; padding: 8px 16px; border: 2px solid #232F3E; border-radius: 20px; transition: all 0.3s ease;" 
+                   onmouseover="this.style.background='#232F3E'; this.style.color='white';" 
+                   onmouseout="this.style.background='transparent'; this.style.color='#232F3E';">
+                    📚 API Documentation
+                </a>
+            </div>
         </div>
 
         <div class="main-content">
@@ -556,7 +568,7 @@
                 <div class="connection-status">
                     <div class="status-indicator">
                         <div class="status-dot connected" id="statusDot"></div>
-                        <span id="statusText">Connected to AWS Security Assistant</span>
+                        <span id="statusText">Connected to AWS Cloud Optimization Assistant</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px; margin: 0 15px;">
                         <label for="awsAccountId" style="font-size: 14px; font-weight: 600; color: #232F3E;">AWS Account
@@ -569,6 +581,7 @@
                         <button class="test-btn" onclick="testSecurityServices()">Security Services</button>
                         <button class="test-btn" onclick="testSecurityFindings()">Security Findings</button>
                         <button class="test-btn" onclick="testStorageEncryption()">Storage Encryption</button>
+                        <button class="test-btn" onclick="testCostOptimization()">Cost Optimization</button>
                         <button class="test-btn" onclick="clearMessages()">Clear Chat</button>
                         <span class="user-email" id="userEmail"></span>
                         <button onclick="logout()" class="logout-btn">Logout</button>
@@ -579,7 +592,7 @@
 
                 <div class="input-container">
                     <input type="text" id="messageInput" class="message-input"
-                        placeholder="Ask about your AWS security posture..." onkeypress="handleKeyPress(event)">
+                        placeholder="Ask about optimizing your AWS environment..." onkeypress="handleKeyPress(event)">
                     <button onclick="sendMessage()" id="sendBtn" class="send-btn">Send</button>
                 </div>
 
@@ -715,23 +728,25 @@
             document.getElementById('userEmail').textContent = currentUser.email;
 
             // Add welcome message with enhanced markdown
-            const welcomeMessage = `# Welcome to the AWS Well-Architected Security Assistant! 🛡️
+            const welcomeMessage = `# Welcome to the AWS Cloud Optimization Assistant! 🛡️
 
-I can help you analyze your AWS security posture with **comprehensive markdown support**!
+I can help you optimize your AWS environment with **comprehensive analysis and recommendations**!
 
 ## Quick Actions:
 - **"Check my security services"** - Verify enabled security services
 - **"What are my security findings?"** - Review security issues
 - **"Analyze my storage encryption"** - Check data protection at rest
 - **"Review my network security"** - Examine data protection in transit
+- **"Analyze my costs"** - Review cost optimization opportunities
 
 ### Features:
 - **Rich markdown formatting** with tables, lists, and code blocks
 - **Interactive JSON data** with collapsible sections
-- **Real-time security analysis** powered by AWS Well-Architected Framework
-- **Structured recommendations** for security improvements
+- **Multi-domain analysis** covering security, cost, performance, and reliability
+- **AWS Well-Architected Framework** powered recommendations
+- **Structured optimization guidance** for your AWS environment
 
-Try the quick action buttons above or ask me anything about your AWS security!`;
+Try the quick action buttons above or ask me anything about optimizing your AWS environment!`;
 
             addMessage('assistant', welcomeMessage);
         }
@@ -746,6 +761,10 @@ Try the quick action buttons above or ask me anything about your AWS security!`;
 
         function testStorageEncryption() {
             sendTestMessage("Analyze my storage encryption");
+        }
+
+        function testCostOptimization() {
+            sendTestMessage("Get recommendation for optimize my spending, through strands-cost-agent");
         }
 
         function sendTestMessage(message) {

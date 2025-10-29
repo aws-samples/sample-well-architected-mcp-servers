@@ -20,7 +20,7 @@
 """
 Cloud Optimization Assistant Chatbot Stack Deployment Script
 Deploys the complete infrastructure with CI/CD pipeline and frontend in a single stack
-Supports both cloud-optimization-assistant-0.1.0.yaml and cloud-optimization-assistant-0.1.1.yaml templates
+Supports cloud-optimization-assistant templates versions 0.1.0, 0.1.2, and 0.1.3
 """
 
 import argparse
@@ -42,11 +42,11 @@ logger = logging.getLogger(__name__)
 class ChatbotStackDeployer:
     def __init__(
         self,
-        stack_name: str = "cloud-optimization-assistant",
+        stack_name: str = "coa",
         region: str = "us-east-1",
         environment: str = "prod",
         profile: Optional[str] = None,
-        template_version: str = "0.1.2",
+        template_version: str = "0.1.3",
     ):
         """
         Initialize the chatbot stack deployer
@@ -56,7 +56,7 @@ class ChatbotStackDeployer:
             region: AWS region
             environment: Environment (dev, staging, prod)
             profile: AWS CLI profile name (optional)
-            template_version: CloudFormation template version (0.1.0 or 0.1.2)
+            template_version: CloudFormation template version (0.1.0, 0.1.2, or 0.1.3)
         """
         self.stack_name = stack_name
         self.region = region
@@ -82,13 +82,42 @@ class ChatbotStackDeployer:
         # Get account ID
         self.account_id = self.sts_client.get_caller_identity()["Account"]
 
+        # Load parameter prefix from configuration
+        self.param_prefix = self._load_parameter_prefix()
+
         logger.info(
             f"Initialized chatbot deployer for account {self.account_id} in region {region}"
         )
+        logger.info(f"Using parameter prefix: {self.param_prefix}")
+
+    def _sanitize_bucket_name(self, name: str) -> str:
+        """Sanitize name for S3 bucket naming requirements"""
+        # Replace underscores with hyphens for S3 compatibility
+        # S3 bucket names must be lowercase and cannot contain underscores
+        sanitized = name.replace('_', '-').lower()
+        return sanitized
+
+    def _load_parameter_prefix(self) -> str:
+        """Load parameter prefix from deployment configuration"""
+        import json
+        from pathlib import Path
+        
+        config_file = Path("deployment-config.json")
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                return config.get('deployment', {}).get('param_prefix', self.stack_name)
+            except Exception as e:
+                logger.warning(f"Could not load parameter prefix from config: {e}")
+        
+        # Fallback to stack name if config not available
+        return self.stack_name
 
     def create_s3_bucket_for_source(self) -> str:
         """Create S3 bucket for storing backend source code"""
-        bucket_name = f"{self.stack_name}-source-{self.account_id}-{self.region}"
+        sanitized_stack_name = self._sanitize_bucket_name(self.stack_name)
+        bucket_name = f"{sanitized_stack_name}-source-{self.account_id}-{self.region}"
 
         try:
             if self.region == "us-east-1":
@@ -178,6 +207,30 @@ class ChatbotStackDeployer:
         with open(template_path, "r") as f:
             return f.read()
 
+    def upload_template_to_s3(self, template_body: str, bucket_name: str) -> str:
+        """Upload CloudFormation template to S3 and return the URL"""
+        template_key = f"templates/cloud-optimization-assistant-{self.template_version}.yaml"
+        
+        try:
+            # Upload template to S3
+            self.s3_client.put_object(
+                Bucket=bucket_name,
+                Key=template_key,
+                Body=template_body,
+                ContentType="text/yaml"
+            )
+            
+            # Generate template URL
+            template_url = f"https://{bucket_name}.s3.amazonaws.com/{template_key}"
+            logger.info(f"Template uploaded to S3: {template_url}")
+            logger.info(f"Template size: {len(template_body)} bytes")
+            
+            return template_url
+            
+        except ClientError as e:
+            logger.error(f"Failed to upload template to S3: {e}")
+            raise
+
     def configure_s3_bucket_for_eventbridge(self, bucket_name: str):
         """Configure S3 bucket for EventBridge notifications"""
         try:
@@ -204,18 +257,22 @@ class ChatbotStackDeployer:
         
         logger.info("=== STAGE 2: CloudFormation Deployment ===")
         
-        # Stage 2: Deploy CloudFormation stack (template is now small enough for direct use)
+        # Stage 2: Deploy CloudFormation stack using S3 template URL to avoid size limits
         template_body = self.load_template()
+        
+        # Upload template to S3 to avoid CloudFormation inline template size limits (51KB)
+        template_url = self.upload_template_to_s3(template_body, actual_source_bucket)
         
         parameters = [
             {"ParameterKey": "Environment", "ParameterValue": self.environment},
             {"ParameterKey": "SourceBucket", "ParameterValue": actual_source_bucket},
+            {"ParameterKey": "ParameterPrefix", "ParameterValue": self.param_prefix},
         ]
 
         logger.info(f"Deploying stack: {self.stack_name}")
         logger.info(f"Environment: {self.environment}")
         logger.info(f"Using existing SourceBucket: {actual_source_bucket}")
-        logger.info(f"Template size: {len(template_body)} characters (within 51,200 limit)")
+        logger.info(f"Template size: {len(template_body)} bytes (using S3 URL to avoid 51,200 byte inline limit)")
 
         try:
             # Check if stack exists
@@ -233,7 +290,7 @@ class ChatbotStackDeployer:
             if stack_exists:
                 response = self.cf_client.update_stack(
                     StackName=self.stack_name,
-                    TemplateBody=template_body,
+                    TemplateURL=template_url,
                     Parameters=parameters,
                     Capabilities=["CAPABILITY_NAMED_IAM"],
                 )
@@ -241,7 +298,7 @@ class ChatbotStackDeployer:
             else:
                 response = self.cf_client.create_stack(
                     StackName=self.stack_name,
-                    TemplateBody=template_body,
+                    TemplateURL=template_url,
                     Parameters=parameters,
                     Capabilities=["CAPABILITY_NAMED_IAM"],
                     OnFailure="ROLLBACK",
@@ -351,7 +408,7 @@ def main():
     )
     parser.add_argument(
         "--stack-name",
-        default="cloud-optimization-assistant",
+        default="coa",
         help="CloudFormation stack name",
     )
     parser.add_argument("--region", default="us-east-1", help="AWS region")
@@ -364,8 +421,8 @@ def main():
     parser.add_argument("--profile", help="AWS CLI profile name")
     parser.add_argument(
         "--template-version",
-        default="0.1.2",
-        choices=["0.1.0", "0.1.2"],
+        default="0.1.3",
+        choices=["0.1.0", "0.1.2", "0.1.3"],
         help="CloudFormation template version to use",
     )
 

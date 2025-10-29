@@ -14,6 +14,7 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass, asdict
@@ -38,7 +39,7 @@ class ManualAgentInfo:
     source_path: Optional[str] = None
     execution_role_arn: Optional[str] = None
     description: Optional[str] = None
-    stack_prefix: str = "coa"
+    stack_prefix: str = None
     
     def __post_init__(self):
         """Extract agent ID and region from ARN if not provided."""
@@ -53,6 +54,10 @@ class ManualAgentInfo:
             arn_parts = self.agent_arn.split(':')
             if len(arn_parts) >= 4:
                 self.region = arn_parts[3]
+        
+        # Use environment variable or default if stack_prefix is None
+        if self.stack_prefix is None:
+            self.stack_prefix = os.environ.get('PARAM_PREFIX', 'coa')
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -461,7 +466,7 @@ class SSMParameterManager:
             self.progress.report_error("No SSM parameters were validated successfully")
             return False
     
-    def list_existing_agent_parameters(self, agent_name: str, stack_prefix: str = "coa") -> List[str]:
+    def list_existing_agent_parameters(self, agent_name: str, stack_prefix: str = None) -> List[str]:
         """
         List existing parameters for an agent.
         
@@ -472,6 +477,8 @@ class SSMParameterManager:
         Returns:
             List of existing parameter paths
         """
+        if stack_prefix is None:
+            stack_prefix = os.environ.get('PARAM_PREFIX', 'coa')
         base_path = f"/{stack_prefix}/agentcore/{agent_name}"
         existing_params = []
         
@@ -549,7 +556,7 @@ class ManualAgentRegistrar:
         
         return True
     
-    def check_existing_registration(self, agent_name: str, stack_prefix: str = "coa") -> bool:
+    def check_existing_registration(self, agent_name: str, stack_prefix: str = None) -> bool:
         """
         Check if the agent is already registered.
         
@@ -560,6 +567,8 @@ class ManualAgentRegistrar:
         Returns:
             True if agent is already registered, False otherwise
         """
+        if stack_prefix is None:
+            stack_prefix = os.environ.get('PARAM_PREFIX', 'coa')
         existing_params = self.ssm_manager.list_existing_agent_parameters(agent_name, stack_prefix)
         
         if existing_params:

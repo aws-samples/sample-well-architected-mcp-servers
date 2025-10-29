@@ -15,6 +15,7 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime
@@ -560,7 +561,9 @@ class AgentCoreRuntimeDiscovery:
         self.ui.print_step(2, "Checking for already registered agents in SSM...")
         
         try:
-            discovery = AgentDiscovery(self.region, self.logger)
+            # Use the stack prefix from the interactive session
+            stack_prefix = getattr(self, 'stack_prefix', os.environ.get('PARAM_PREFIX', 'coa'))
+            discovery = AgentDiscovery(self.region, self.logger, stack_prefix)
             registered_agents = discovery.discover_registered_agents()
             
             runtimes = []
@@ -597,8 +600,9 @@ class AgentCoreRuntimeDiscovery:
 class InteractiveAgentRegistration:
     """Main interactive agent registration class."""
     
-    def __init__(self, region: str):
+    def __init__(self, region: str, stack_prefix: str = None):
         self.region = region
+        self.stack_prefix = stack_prefix or os.environ.get('PARAM_PREFIX', 'coa')
         self.ui = InteractiveUI()
         
         # Set up logging
@@ -822,7 +826,8 @@ class InteractiveAgentRegistration:
             agent_type=selected_type,
             source_path=source_path if source_path else None,
             execution_role_arn=execution_role if execution_role else None,
-            description=description if description else None
+            description=description if description else None,
+            stack_prefix=self.stack_prefix
         )
         
         return agent_info
@@ -1001,6 +1006,11 @@ Examples:
         help="Logging level (default: INFO)"
     )
     
+    parser.add_argument(
+        "--stack-prefix",
+        help="Stack prefix for SSM parameter paths (default: from PARAM_PREFIX env var or 'coa')"
+    )
+    
     return parser.parse_args()
 
 
@@ -1013,7 +1023,7 @@ def main():
         logging.getLogger().setLevel(getattr(logging, args.log_level.upper()))
         
         # Run interactive session
-        tool = InteractiveAgentRegistration(args.region)
+        tool = InteractiveAgentRegistration(args.region, args.stack_prefix)
         tool.run_interactive_session()
         
     except KeyboardInterrupt:

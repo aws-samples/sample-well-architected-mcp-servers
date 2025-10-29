@@ -1183,78 +1183,6 @@ Resources:
                   - sts:GetCallerIdentity
                   - sts:AssumeRole
                 Resource: '*'
-              - Sid: EC2ReadOnly
-                Effect: Allow
-                Action:
-                  - ec2:Describe*
-                  - ec2:List*
-                  - ec2:Get*
-                Resource: '*'
-              - Sid: S3ReadOnly
-                Effect: Allow
-                Action:
-                  - s3:ListAllMyBuckets
-                  - s3:ListBucket
-                  - s3:GetBucketLocation
-                  - s3:GetBucketVersioning
-                  - s3:GetBucketEncryption
-                  - s3:GetBucketPolicy
-                  - s3:GetBucketAcl
-                Resource: '*'
-              - Sid: LambdaReadOnly
-                Effect: Allow
-                Action:
-                  - lambda:List*
-                  - lambda:Get*
-                Resource: '*'
-              - Sid: IAMReadOnly
-                Effect: Allow
-                Action:
-                  - iam:List*
-                  - iam:Get*
-                Resource: '*'
-              - Sid: RDSReadOnly
-                Effect: Allow
-                Action:
-                  - rds:Describe*
-                  - rds:List*
-                Resource: '*'
-              - Sid: CloudFormationReadOnly
-                Effect: Allow
-                Action:
-                  - cloudformation:Describe*
-                  - cloudformation:List*
-                  - cloudformation:Get*
-                Resource: '*'
-              - Sid: CloudWatchReadOnly
-                Effect: Allow
-                Action:
-                  - cloudwatch:Describe*
-                  - cloudwatch:List*
-                  - cloudwatch:Get*
-                Resource: '*'
-              - Sid: CloudWatchLogs
-                Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                  - logs:DescribeLogGroups
-                  - logs:DescribeLogStreams
-                Resource: '*'
-              - Sid: SupportReadOnly
-                Effect: Allow
-                Action:
-                  - support:Describe*
-                Resource: '*'
-              - Sid: ECRAccess
-                Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                Resource: '*'
         - PolicyName: AgentCoreRuntimeSSMPolicy
           PolicyDocument:
             Version: '2012-10-17'
@@ -1336,6 +1264,8 @@ Resources:
                 Resource:
                   - 'arn:aws:bedrock:*::foundation-model/*'
                   - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:*'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecurityAudit
       Tags:
         - Key: Environment
           Value: !Ref Environment

@@ -15,6 +15,7 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -37,10 +38,11 @@ def setup_logging(log_level: str = "INFO") -> logging.Logger:
 class AgentDiscovery:
     """Discovers existing agents and their registration status."""
     
-    def __init__(self, region: str, logger: logging.Logger, stack_prefix: str = "coa"):
+    def __init__(self, region: str, logger: logging.Logger, stack_prefix: str = None):
         self.region = region
         self.logger = logger
-        self.stack_prefix = stack_prefix
+        # Use environment variable or default to "coa"
+        self.stack_prefix = stack_prefix or os.environ.get('PARAM_PREFIX', 'coa')
         self.session = boto3.Session(region_name=region)
         self.ssm_client = self.session.client('ssm')
     
@@ -432,8 +434,7 @@ def parse_arguments() -> argparse.Namespace:
     
     parser.add_argument(
         "--stack-prefix",
-        default="coa",
-        help="Stack prefix for SSM parameter paths (default: coa)"
+        help="Stack prefix for SSM parameter paths (default: from PARAM_PREFIX env var or 'coa')"
     )
     
     parser.add_argument(

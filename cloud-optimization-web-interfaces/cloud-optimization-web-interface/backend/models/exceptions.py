@@ -125,3 +125,73 @@ class AgentInvocationError(BedrockServiceError):
 class QueryRouterError(COABaseException):
     """Exception raised by Query Router operations."""
     pass
+
+
+# AgentCore-specific exceptions
+class AgentCoreError(COABaseException):
+    """Base exception for AgentCore operations."""
+    pass
+
+
+class AgentRegistryError(AgentCoreError):
+    """Exception raised by Agent Registry operations."""
+    
+    def __init__(self, message: str, agent_id: Optional[str] = None,
+                 details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "AGENT_REGISTRY_ERROR", details)
+        self.agent_id = agent_id
+
+
+class AgentDiscoveryError(AgentCoreError):
+    """Exception raised by Agent Discovery operations."""
+    
+    def __init__(self, message: str, ssm_path: Optional[str] = None,
+                 details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "AGENT_DISCOVERY_ERROR", details)
+        self.ssm_path = ssm_path
+
+
+class AgentInvocationError(AgentCoreError):
+    """Exception raised by Agent Invocation operations."""
+    
+    def __init__(self, message: str, agent_id: Optional[str] = None,
+                 session_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "AGENT_INVOCATION_ERROR", details)
+        self.agent_id = agent_id
+        self.session_id = session_id
+
+
+class AgentCoreClientError(AgentCoreError):
+    """Exception raised by AgentCore client operations."""
+    
+    def __init__(self, message: str, client_version: Optional[str] = None,
+                 details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "AGENTCORE_CLIENT_ERROR", details)
+        self.client_version = client_version
+
+
+class CommandProcessingError(AgentCoreError):
+    """Exception raised by Command processing operations."""
+    
+    def __init__(self, message: str, command: Optional[str] = None,
+                 details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "COMMAND_PROCESSING_ERROR", details)
+        self.command = command
+
+
+class SSMParameterError(AgentCoreError):
+    """Exception raised by SSM parameter operations."""
+    
+    def __init__(self, message: str, parameter_name: Optional[str] = None,
+                 details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "SSM_PARAMETER_ERROR", details)
+        self.parameter_name = parameter_name
+
+
+class AgentConfigurationError(AgentCoreError):
+    """Exception raised by Agent configuration validation."""
+    
+    def __init__(self, message: str, config_field: Optional[str] = None,
+                 details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "AGENT_CONFIGURATION_ERROR", details)
+        self.config_field = config_field
