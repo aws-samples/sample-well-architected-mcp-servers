@@ -22,6 +22,10 @@
 
 set -e  # Exit on any error
 
+# Source global configuration management
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/deployment-scripts/utils/load_config.sh"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -37,6 +41,8 @@ ENVIRONMENT="prod"
 PROFILE=""
 SKIP_PREREQUISITES=false
 CLEANUP_ONLY=false
+AGENTCORE_ONLY=false
+REDEPLOY_FRONTEND_BACKEND=false
 RESUME_FROM_STAGE=0
 PROGRESS_FILE=".coa-deployment-progress"
 USE_DATE_SUFFIX=true
@@ -58,25 +64,75 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to validate stack name format
+validate_stack_name() {
+    local stack_name="$1"
+    
+    if [[ -z "$stack_name" ]]; then
+        return 0  # Will be generated later
+    fi
+    
+    # Check for underscores
+    if [[ "$stack_name" == *"_"* ]]; then
+        print_error "Stack name cannot contain underscores: $stack_name"
+        print_error "Underscores are not allowed in CloudFormation stack names and cause S3 bucket naming conflicts"
+        print_status "Please use a stack name with only alphanumeric characters"
+        print_status "Example: 'coa1127p' instead of 'coa_1127p'"
+        exit 1
+    fi
+    
+    # Check for hyphens
+    if [[ "$stack_name" == *"-"* ]]; then
+        print_error "Stack name cannot contain hyphens: $stack_name"
+        print_error "Hyphens can cause issues with parameter prefix generation"
+        print_status "Please use a stack name with only alphanumeric characters"
+        print_status "Example: 'coa1127p' instead of 'coa-1127p'"
+        exit 1
+    fi
+    
+    # Check for valid characters (alphanumeric only)
+    if [[ ! "$stack_name" =~ ^[a-zA-Z0-9]+$ ]]; then
+        print_error "Stack name contains invalid characters: $stack_name"
+        print_error "Stack name must contain only alphanumeric characters (a-z, A-Z, 0-9)"
+        print_status "Example: 'coa1127p' is valid"
+        exit 1
+    fi
+    
+    print_success "Stack name validation passed: $stack_name"
+}
+
 # Function to show usage
 show_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Deploy Cloud Optimization Assistant (COA) end-to-end stack
+Deploy Cloud Optimization Assistant (COA) end-to-end stack with dynamic parameter prefixes
 
 OPTIONS:
     -n, --stack-name NAME       CloudFormation stack name (default: coa-MMDD)
+                               Note: Stack name must contain only alphanumeric characters (no underscores or hyphens)
+                               Stack name is automatically converted to parameter prefix
+                               Example: coadev → /coadev/ parameter prefix
     -r, --region REGION         AWS region (default: us-east-1)
     -e, --environment ENV       Environment: dev, staging, prod (default: prod)
     -p, --profile PROFILE       AWS CLI profile name
     -s, --skip-prerequisites    Skip prerequisite checks
     -c, --cleanup               Comprehensive cleanup: delete CloudFormation stack, S3 source buckets, and SSM parameters, then exit
+    --agentcore-only            Deploy only infrastructure (skip MCP servers and Bedrock agents)
+    --redeploy-frontend-backend Redeploy only frontend and backend code (skip infrastructure)
     --no-date-suffix            Don't append date suffix to stack name
     --resume-from-stage N       Resume deployment from stage N (1-7)
     --show-progress             Show current deployment progress and exit
     --reset-progress            Reset deployment progress tracking
     -h, --help                  Show this help message
+
+PARAMETER PREFIX SYSTEM:
+    The deployment automatically generates unique parameter prefixes from your stack name:
+    • Stack Name: coa-dev        → Parameter Prefix: /coa_dev/
+    • Stack Name: my-coa-stack   → Parameter Prefix: /my_coa_stack/
+    • Stack Name: coa-prod-east  → Parameter Prefix: /coa_prod_east/
+    
+    This enables multiple isolated deployments in the same AWS account without conflicts.
 
 DEPLOYMENT STAGES:
     1. Deploy chatbot stack and update Cognito callbacks
@@ -89,15 +145,39 @@ DEPLOYMENT STAGES:
     8. Final completion
 
 EXAMPLES:
-    $0                                          # Deploy with defaults (stack name includes today's date)
+    # Basic deployments with automatic parameter prefix generation
+    $0                                          # Deploy with defaults (stack: coa-MMDD, prefix: /coa_MMDD/)
+    $0 -n coa-dev -e dev                       # Development environment (prefix: /coa_dev/)
+    $0 -n coa-staging -e staging               # Staging environment (prefix: /coa_staging/)
+    $0 -n coa-prod -e prod                     # Production environment (prefix: /coa_prod/)
+    
+    # Multi-environment and team deployments
+    $0 -n coa-team-alpha -e dev                # Team Alpha environment (prefix: /coa_team_alpha/)
+    $0 -n coa-security-assessment -e prod      # Security team deployment (prefix: /coa_security_assessment/)
+    
+    # Multi-region deployments
+    $0 -n coa-prod-east -r us-east-1          # East region (prefix: /coa_prod_east/)
+    $0 -n coa-prod-west -r us-west-2          # West region (prefix: /coa_prod_west/)
+    
+    # Advanced options
     $0 -p gameday -e dev                       # Deploy with gameday profile in dev environment
-    $0 -n my-coa-stack -r us-west-2           # Deploy with custom stack name and region
     $0 --no-date-suffix                        # Deploy without date suffix in stack name
+    $0 --agentcore-only                        # Deploy infrastructure only (no MCP servers or agents)
+    $0 --redeploy-frontend-backend             # Redeploy only frontend and backend code
     $0 -s                                      # Skip prerequisite checks
     $0 -c                                      # Comprehensive cleanup: delete stack, buckets, and parameters only
     $0 --resume-from-stage 3                   # Resume from stage 3 (Deploy MCP servers)
     $0 --show-progress                         # Show current progress
     $0 --reset-progress                        # Reset progress tracking
+
+MULTI-DEPLOYMENT SCENARIOS:
+    # Deploy multiple isolated environments in the same account
+    $0 -n coa-dev && $0 -n coa-staging && $0 -n coa-prod
+    
+    # Deploy team-specific environments
+    for team in alpha beta gamma; do
+        $0 -n "coa-team-\$team" -e dev
+    done
 
 EOF
 }
@@ -108,6 +188,8 @@ while [[ $# -gt 0 ]]; do
         -n|--stack-name)
             STACK_NAME="$2"
             USE_DATE_SUFFIX=false
+            # Validate stack name immediately when provided
+            validate_stack_name "$STACK_NAME"
             shift 2
             ;;
         -r|--region)
@@ -128,6 +210,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--cleanup)
             CLEANUP_ONLY=true
+            shift
+            ;;
+        --agentcore-only)
+            AGENTCORE_ONLY=true
+            shift
+            ;;
+        --redeploy-frontend-backend)
+            REDEPLOY_FRONTEND_BACKEND=true
             shift
             ;;
         --no-date-suffix)
@@ -310,6 +400,8 @@ reset_deployment_progress() {
     fi
 }
 
+
+
 # Function to generate stack name with date suffix
 generate_stack_name() {
     if [[ -z "$STACK_NAME" ]]; then
@@ -320,7 +412,22 @@ generate_stack_name() {
             STACK_NAME="$DEFAULT_STACK_NAME"
         fi
     fi
+    
+    # Validate the stack name format
+    validate_stack_name "$STACK_NAME"
+    
     print_status "Using stack name: $STACK_NAME"
+    
+    # Update global configuration with the finalized stack name
+    print_status "Updating global configuration with stack name: $STACK_NAME"
+    if update_deployment_config "$STACK_NAME" "$REGION"; then
+        print_success "Global configuration updated successfully"
+        # Load the updated configuration to set environment variables
+        load_deployment_config
+    else
+        print_error "Failed to update global configuration"
+        exit 1
+    fi
 }
 
 # Function to validate resume stage
@@ -495,19 +602,20 @@ check_existing_ssm_parameters() {
     local conflicting_stacks=()
 
     # Define the specific parameters that are known to cause conflicts
+    # Use dynamic parameter paths from global configuration
     local critical_params=(
-        "/cloud-optimization-platform/BEDROCK_MODEL_ID"
-        "/cloud-optimization-platform/BEDROCK_REGION"
-        "/cloud-optimization-platform/USE_ENHANCED_AGENT"
-        "/coa/cognito/region"
-        "/coa/cognito/user_pool_id"
-        "/coa/cognito/web_app_client_id"
-        "/coa/cognito/api_client_id"
-        "/coa/cognito/mcp_server_client_id"
-        "/coa/cognito/user_pool_domain"
-        "/coa/cognito/discovery_url"
-        "/coa/cognito/user_pool_arn"
-        "/coa/cognito/identity_pool_id"
+        "${BEDROCK_PATH}/BEDROCK_MODEL_ID"
+        "${BEDROCK_PATH}/BEDROCK_REGION"
+        "${BEDROCK_PATH}/USE_ENHANCED_AGENT"
+        "${COGNITO_PATH}/region"
+        "${COGNITO_PATH}/user_pool_id"
+        "${COGNITO_PATH}/web_app_client_id"
+        "${COGNITO_PATH}/api_client_id"
+        "${COGNITO_PATH}/mcp_server_client_id"
+        "${COGNITO_PATH}/user_pool_domain"
+        "${COGNITO_PATH}/discovery_url"
+        "${COGNITO_PATH}/user_pool_arn"
+        "${COGNITO_PATH}/identity_pool_id"
     )
 
     # Check each critical parameter individually
@@ -522,7 +630,7 @@ check_existing_ssm_parameters() {
 
     # Check for existing Cognito parameters (broader check)
     local cognito_params
-    if cognito_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/cognito" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+    if cognito_params=$($aws_cmd ssm get-parameters-by-path --path "${COGNITO_PATH}" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$cognito_params" && "$cognito_params" != "" ]]; then
             print_warning "Found existing Cognito SSM parameters:"
             for param in $cognito_params; do
@@ -538,7 +646,7 @@ check_existing_ssm_parameters() {
 
     # Check for existing Bedrock parameters (broader check)
     local bedrock_params
-    if bedrock_params=$($aws_cmd ssm get-parameters-by-path --path "/cloud-optimization-platform" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+    if bedrock_params=$($aws_cmd ssm get-parameters-by-path --path "${BEDROCK_PATH}" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$bedrock_params" && "$bedrock_params" != "" ]]; then
             print_warning "Found existing Bedrock SSM parameters:"
             for param in $bedrock_params; do
@@ -706,8 +814,10 @@ cleanup_s3_buckets() {
         
         # Also look for any other buckets with the stack name
         print_status "Checking for additional buckets with stack name pattern..."
+        # Check for both original stack name and sanitized version
+        local sanitized_stack_name=$(echo "$STACK_NAME" | tr '_' '-' | tr '[:upper:]' '[:lower:]')
         local all_buckets
-        if all_buckets=$($aws_cmd s3api list-buckets --query "Buckets[?contains(Name, '${STACK_NAME}')].Name" --output text 2>/dev/null); then
+        if all_buckets=$($aws_cmd s3api list-buckets --query "Buckets[?contains(Name, '${sanitized_stack_name}') || contains(Name, '${STACK_NAME}')].Name" --output text 2>/dev/null); then
             if [[ -n "$all_buckets" && "$all_buckets" != "" ]]; then
                 for bucket in $all_buckets; do
                     # Skip if already processed
@@ -816,7 +926,9 @@ cleanup_s3_source_buckets() {
     if account_id=$($aws_cmd sts get-caller-identity --query Account --output text 2>/dev/null); then
         
         # Source bucket pattern (matches the pattern used in deployment)
-        local source_bucket="${STACK_NAME}-source-${account_id}-${REGION}"
+        # Sanitize stack name for S3 bucket naming (replace underscores with hyphens)
+        local sanitized_stack_name=$(echo "$STACK_NAME" | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+        local source_bucket="${sanitized_stack_name}-source-${account_id}-${REGION}"
         
         print_status "Checking for source bucket: $source_bucket"
         
@@ -850,19 +962,20 @@ cleanup_existing_parameters() {
     local params_failed=0
 
     # Define the specific parameters that are known to cause conflicts
+    # Use dynamic parameter paths from global configuration
     local critical_params=(
-        "/cloud-optimization-platform/BEDROCK_MODEL_ID"
-        "/cloud-optimization-platform/BEDROCK_REGION"
-        "/cloud-optimization-platform/USE_ENHANCED_AGENT"
-        "/coa/cognito/region"
-        "/coa/cognito/user_pool_id"
-        "/coa/cognito/web_app_client_id"
-        "/coa/cognito/api_client_id"
-        "/coa/cognito/mcp_server_client_id"
-        "/coa/cognito/user_pool_domain"
-        "/coa/cognito/discovery_url"
-        "/coa/cognito/user_pool_arn"
-        "/coa/cognito/identity_pool_id"
+        "${BEDROCK_PATH}/BEDROCK_MODEL_ID"
+        "${BEDROCK_PATH}/BEDROCK_REGION"
+        "${BEDROCK_PATH}/USE_ENHANCED_AGENT"
+        "${COGNITO_PATH}/region"
+        "${COGNITO_PATH}/user_pool_id"
+        "${COGNITO_PATH}/web_app_client_id"
+        "${COGNITO_PATH}/api_client_id"
+        "${COGNITO_PATH}/mcp_server_client_id"
+        "${COGNITO_PATH}/user_pool_domain"
+        "${COGNITO_PATH}/discovery_url"
+        "${COGNITO_PATH}/user_pool_arn"
+        "${COGNITO_PATH}/identity_pool_id"
     )
 
     # First, try to delete specific critical parameters
@@ -881,7 +994,7 @@ cleanup_existing_parameters() {
 
     # Clean up Cognito parameters (broader cleanup)
     local cognito_params
-    if cognito_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/cognito" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+    if cognito_params=$($aws_cmd ssm get-parameters-by-path --path "${COGNITO_PATH}" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$cognito_params" && "$cognito_params" != "" ]]; then
             print_status "Deleting remaining Cognito SSM parameters..."
             for param in $cognito_params; do
@@ -898,7 +1011,7 @@ cleanup_existing_parameters() {
 
     # Clean up Bedrock parameters (broader cleanup)
     local bedrock_params
-    if bedrock_params=$($aws_cmd ssm get-parameters-by-path --path "/cloud-optimization-platform" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+    if bedrock_params=$($aws_cmd ssm get-parameters-by-path --path "${BEDROCK_PATH}" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$bedrock_params" && "$bedrock_params" != "" ]]; then
             print_status "Deleting remaining Bedrock SSM parameters..."
             for param in $bedrock_params; do
@@ -915,7 +1028,7 @@ cleanup_existing_parameters() {
 
     # Clean up MCP component parameters
     local mcp_params
-    if mcp_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/components" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+    if mcp_params=$($aws_cmd ssm get-parameters-by-path --path "${COMPONENTS_PATH}" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$mcp_params" && "$mcp_params" != "" ]]; then
             print_status "Deleting MCP component SSM parameters..."
             for param in $mcp_params; do
@@ -932,7 +1045,7 @@ cleanup_existing_parameters() {
 
     # Clean up agent parameters
     local agent_params
-    if agent_params=$($aws_cmd ssm get-parameters-by-path --path "/coa/agent" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
+    if agent_params=$($aws_cmd ssm get-parameters-by-path --path "${AGENT_PATH}" --query 'Parameters[].Name' --output text --region $REGION 2>/dev/null); then
         if [[ -n "$agent_params" && "$agent_params" != "" ]]; then
             print_status "Deleting agent SSM parameters..."
             for param in $agent_params; do
@@ -1335,7 +1448,9 @@ upload_backend_source_code() {
     # Calculate SourceBucket name (same pattern as in deploy_chatbot_stack.py)
     local account_id
     if account_id=$($aws_cmd sts get-caller-identity --query Account --output text 2>/dev/null); then
-        local source_bucket="${STACK_NAME}-source-${account_id}-${REGION}"
+        # Sanitize stack name for S3 bucket naming (replace underscores with hyphens)
+        local sanitized_stack_name=$(echo "$STACK_NAME" | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+        local source_bucket="${sanitized_stack_name}-source-${account_id}-${REGION}"
         print_status "Using SourceBucket: $source_bucket"
         
         # Create source code archive
@@ -1659,12 +1774,135 @@ stage_8_final_completion() {
     return 0
 }
 
+# Validate parameter prefix configuration
+validate_parameter_configuration() {
+    print_status "Validating parameter prefix configuration..."
+    
+    # Check if deployment validation utility exists
+    local validation_script="$SCRIPT_DIR/deployment-scripts/utils/deployment_validation.py"
+    
+    if [[ ! -f "$validation_script" ]]; then
+        print_warning "Deployment validation utility not found, skipping validation"
+        return 0
+    fi
+    
+    # Check if Python is available
+    if ! command -v python3 &> /dev/null; then
+        print_warning "Python3 not available, skipping parameter validation"
+        return 0
+    fi
+    
+    # Run deployment validation
+    local validation_output
+    local validation_exit_code
+    
+    print_status "Running deployment validation for stack: $STACK_NAME"
+    
+    # Capture output and exit code
+    if validation_output=$(python3 "$validation_script" "$STACK_NAME" --config-file "$SCRIPT_DIR/deployment-config.json" 2>&1); then
+        validation_exit_code=0
+    else
+        validation_exit_code=$?
+    fi
+    
+    # Process validation results
+    case $validation_exit_code in
+        0)
+            print_success "Parameter configuration validation passed"
+            ;;
+        1)
+            print_error "Parameter configuration validation failed with critical errors:"
+            echo "$validation_output"
+            echo
+            print_error "Please fix the configuration issues before proceeding with deployment"
+            exit 1
+            ;;
+        2)
+            print_warning "Parameter configuration validation completed with warnings:"
+            echo "$validation_output"
+            echo
+            print_warning "Review the warnings above. Deployment can continue but may have issues."
+            
+            # Ask user if they want to continue
+            read -p "Do you want to continue with deployment despite warnings? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_status "Deployment cancelled by user"
+                exit 0
+            fi
+            ;;
+        *)
+            print_warning "Parameter configuration validation encountered an error:"
+            echo "$validation_output"
+            echo
+            print_warning "Validation failed, but deployment can continue. Proceed with caution."
+            ;;
+    esac
+    
+    # Update global configuration if validation passed
+    if [[ $validation_exit_code -eq 0 || $validation_exit_code -eq 2 ]]; then
+        print_status "Updating global deployment configuration..."
+        
+        # Load or update configuration
+        if load_deployment_config; then
+            print_success "Global configuration loaded successfully"
+            print_status "Parameter prefix: $PARAM_PREFIX"
+            print_status "Parameter paths configured for categories: agentcore, cognito, components, agent"
+        else
+            print_warning "Failed to load global configuration, using defaults"
+        fi
+    fi
+}
+
 # Main execution flow
 main() {
     echo "================================================================================"
     echo "           Cloud Optimization Assistant (COA) Deployment Script"
     echo "================================================================================"
     echo
+
+    # Handle redeploy frontend backend mode
+    if [[ "$REDEPLOY_FRONTEND_BACKEND" == "true" ]]; then
+        print_status "Running in frontend/backend redeploy mode..."
+        
+        # Generate stack name
+        generate_stack_name
+        
+        check_aws_credentials
+        
+        echo "================================================================================"
+        echo "                    FRONTEND/BACKEND CODE REDEPLOY"
+        echo "================================================================================"
+        echo "Stack Name:   $STACK_NAME"
+        echo "Region:       $REGION"
+        echo "Environment:  $ENVIRONMENT"
+        if [[ -n "$PROFILE" ]]; then
+            echo "AWS Profile:  $PROFILE"
+        fi
+        echo
+        
+        print_status "This will redeploy only the frontend and backend code without touching infrastructure"
+        print_status "The following will be updated:"
+        echo "  • Backend Python code (FastAPI application)"
+        echo "  • Frontend HTML/CSS/JS files"
+        echo "  • Prompt templates"
+        echo "  • Configuration files"
+        echo
+        
+        # Validate that the stack exists
+        validate_existing_stack
+        
+        # Run stage 6 directly (upload backend source code)
+        print_status "Executing frontend/backend code deployment..."
+        upload_backend_source_code
+        
+        print_success "Frontend/backend redeploy completed successfully! 🎉"
+        print_status "Check the AWS Console for deployment progress:"
+        echo "  CodePipeline: https://console.aws.amazon.com/codesuite/codepipeline/pipelines/${STACK_NAME}-pipeline/view"
+        echo "  ECS Service:  https://console.aws.amazon.com/ecs/home?region=${REGION}#/clusters/${STACK_NAME}-cluster/services"
+        
+        exit 0
+    fi
 
     # Handle cleanup-only mode
     if [[ "$CLEANUP_ONLY" == "true" ]]; then
@@ -1717,6 +1955,11 @@ main() {
     # Generate stack name with date suffix if needed
     generate_stack_name
     
+    # Validate parameter prefix configuration (only if starting from beginning)
+    if [[ $RESUME_FROM_STAGE -le 1 ]]; then
+        validate_parameter_configuration
+    fi
+    
     # Validate resume stage and load previous configuration if resuming
     validate_resume_stage $RESUME_FROM_STAGE
 
@@ -1754,6 +1997,9 @@ main() {
     echo "  Stack Name:   $STACK_NAME"
     echo "  Region:       $REGION"
     echo "  Environment:  $ENVIRONMENT"
+    if [[ "$AGENTCORE_ONLY" == "true" ]]; then
+        echo "  Mode:         AgentCore-only (infrastructure only)"
+    fi
     if [[ -n "$PROFILE" ]]; then
         echo "  AWS Profile:  $PROFILE"
     fi
@@ -1784,12 +2030,18 @@ main() {
         execute_stage 2 "Generate Cognito SSM parameters" "stage_2_generate_cognito_params"
     fi
 
-    if [[ $start_stage -le 3 ]]; then
+    if [[ $start_stage -le 3 && "$AGENTCORE_ONLY" != "true" ]]; then
         execute_stage 3 "Deploy MCP servers" "stage_3_deploy_mcp_servers"
+    elif [[ "$AGENTCORE_ONLY" == "true" ]]; then
+        print_status "Skipping MCP servers deployment (AgentCore-only mode)"
+        save_progress 3 "Deploy MCP servers (skipped - AgentCore-only)"
     fi
 
-    if [[ $start_stage -le 4 ]]; then
+    if [[ $start_stage -le 4 && "$AGENTCORE_ONLY" != "true" ]]; then
         execute_stage 4 "Deploy Bedrock agent" "stage_4_deploy_bedrock_agent"
+    elif [[ "$AGENTCORE_ONLY" == "true" ]]; then
+        print_status "Skipping Bedrock agent deployment (AgentCore-only mode)"
+        save_progress 4 "Deploy Bedrock agent (skipped - AgentCore-only)"
     fi
 
     if [[ $start_stage -le 5 ]]; then
@@ -1811,6 +2063,58 @@ main() {
     # Clean up progress file on successful completion
     if [[ -f "$PROGRESS_FILE" ]]; then
         rm "$PROGRESS_FILE"
+    fi
+}
+
+# Function to validate that the stack exists
+validate_existing_stack() {
+    print_status "Validating existing COA stack..."
+    
+    local aws_cmd="aws"
+    if [[ -n "$PROFILE" ]]; then
+        aws_cmd="aws --profile $PROFILE"
+    fi
+    
+    # Check if the stack exists
+    if ! $aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" &>/dev/null; then
+        print_error "CloudFormation stack '$STACK_NAME' not found in region '$REGION'"
+        print_error "The --redeploy-frontend-backend option requires an existing COA deployment"
+        print_status "Available stacks in region $REGION:"
+        $aws_cmd cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --region "$REGION" --query 'StackSummaries[?contains(StackName, \`coa\`)].StackName' --output table 2>/dev/null || true
+        exit 1
+    fi
+    
+    # Get stack status
+    local stack_status
+    stack_status=$($aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null)
+    
+    if [[ "$stack_status" != "CREATE_COMPLETE" && "$stack_status" != "UPDATE_COMPLETE" ]]; then
+        print_error "Stack '$STACK_NAME' is in status '$stack_status'"
+        print_error "Frontend/backend redeploy requires a stack in CREATE_COMPLETE or UPDATE_COMPLETE status"
+        exit 1
+    fi
+    
+    print_success "Found existing COA stack: $STACK_NAME (Status: $stack_status)"
+    
+    # Validate that required resources exist
+    local source_bucket
+    source_bucket=$($aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].Outputs[?OutputKey==\`SourceBucket\`].OutputValue' --output text 2>/dev/null)
+    
+    if [[ -z "$source_bucket" || "$source_bucket" == "None" ]]; then
+        print_error "Source bucket not found in stack outputs"
+        print_error "This may not be a valid COA deployment"
+        exit 1
+    fi
+    
+    print_success "Found source bucket: $source_bucket"
+    
+    # Check if pipeline exists
+    local pipeline_name="${STACK_NAME}-pipeline"
+    if $aws_cmd codepipeline get-pipeline --name "$pipeline_name" --region "$REGION" &>/dev/null; then
+        print_success "Found CI/CD pipeline: $pipeline_name"
+    else
+        print_warning "CI/CD pipeline '$pipeline_name' not found or not accessible"
+        print_status "Code upload will still work, but automatic deployment may not trigger"
     fi
 }
 
