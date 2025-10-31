@@ -44,6 +44,16 @@
             font-weight: 700;
         }
 
+        .test-badge {
+            background: #007bff;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            margin-left: 15px;
+            font-weight: 600;
+        }
+
         .main-content {
             flex: 1;
             display: flex;
@@ -754,6 +764,12 @@
                 font-size: 1.8em;
             }
 
+            .test-badge {
+                display: block;
+                margin: 5px auto 0;
+                text-align: center;
+            }
+
             .connection-status {
                 padding: 12px;
             }
@@ -857,6 +873,11 @@
 
             .header h1 {
                 font-size: 1.5em;
+            }
+
+            .test-badge {
+                font-size: 0.7em;
+                padding: 3px 10px;
             }
 
             .chat-container {
@@ -1003,6 +1024,7 @@
                             maxlength="12" pattern="[0-9]{12}">
                     </div>
                     <div class="test-buttons">
+                        <button class="test-btn" onclick="testConnection()">Test Connection</button>
                         <button class="test-btn" onclick="clearMessages()">Clear Chat</button>
                         <span class="user-email" id="userEmail"></span>
                         <button onclick="logout()" class="logout-btn">Logout</button>
@@ -1167,6 +1189,12 @@
             document.getElementById('chatContainer').style.display = 'flex';
             document.getElementById('userEmail').textContent = currentUser.email;
 
+            // Initialize connection status
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Connected to AWS Cloud Optimization Assistant';
+
             // Add welcome message with enhanced markdown
             const welcomeMessage = `# Welcome to the AWS Cloud Optimization Assistant! 🛡️
 
@@ -1215,6 +1243,44 @@ Try the quick action buttons above or ask me anything about optimizing your AWS 
 
         function testCostOptimization() {
             sendTestMessage("Get recommendation for optimize my spending, through strands-cost-agent");
+        }
+
+        async function testConnection() {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            try {
+                statusText.textContent = 'Testing connection...';
+                statusDot.classList.remove('connected');
+
+                const response = await fetch(window.APP_CONFIG.api.endpoints.health || `${window.APP_CONFIG.api.baseUrl}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser.token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDot.classList.add('connected');
+                    statusText.textContent = `Connected - ${data.status || 'OK'}`;
+                    
+                    addMessage('assistant', '✅ **Successfully connected to production backend!**\n\nAuthenticated connection established. Backend services are running normally.');
+                    
+                    // Load available agents after successful connection
+                    setTimeout(() => {
+                        loadAvailableAgents();
+                    }, 1000);
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                statusDot.classList.remove('connected');
+                statusText.textContent = `Connection failed: ${error.message}`;
+                
+                addMessage('assistant', '❌ **Failed to connect to backend.**\n\nPlease check your authentication and network connection.');
+            }
         }
 
 
