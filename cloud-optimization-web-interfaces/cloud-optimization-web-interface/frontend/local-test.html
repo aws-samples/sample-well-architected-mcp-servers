@@ -913,7 +913,7 @@
                     </div>
                     <div class="control-group">
                         <label for="agentSelect" style="font-size: 14px; font-weight: 600; color: #232F3E;">Agent:</label>
-                        <select id="agentSelect" onchange="onAgentChange()" 
+                        <select id="agentSelect" onchange="onAgentChange()" onfocus="loadAvailableAgents()"
                             style="padding: 6px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; background: white; min-width: 140px;">
                             <option value="auto">🤖 Auto-Select Agent</option>
                             <option value="loading" disabled>Loading agents...</option>
@@ -927,13 +927,11 @@
                     </div>
                     <div class="test-buttons">
                         <button class="test-btn" onclick="testConnection()">Test Connection</button>
-                        <button class="test-btn" onclick="loadAvailableAgents()">Reload Agents</button>
                         <!-- Hidden static buttons as requested -->
                         <!-- <button class="test-btn" onclick="testSecurityServices()">Security Services</button> -->
                         <!-- <button class="test-btn" onclick="testSecurityFindings()">Security Findings</button> -->
                         <!-- <button class="test-btn" onclick="testStorageEncryption()">Storage Encryption</button> -->
                         <!-- <button class="test-btn" onclick="testCostOptimization()">Cost Optimization</button> -->
-                        <button class="test-btn" onclick="testAgentSelection()">Test Agent Selection</button>
                         <button class="test-btn" onclick="clearMessages()">Clear Chat</button>
                     </div>
                 </div>
@@ -1087,35 +1085,54 @@ Select your environment from the dropdown and click "Test Connection" to get sta
 
                 if (response.ok) {
                     const data = await response.json();
-                    availableAgents = data.agents || {};
+                    const agentsArray = data.agents || [];
+                    
+                    // Convert array to object for easier access
+                    availableAgents = {};
+                    agentsArray.forEach(agent => {
+                        availableAgents[agent.agent_type || agent.agent_id] = agent;
+                    });
                     
                     // Remove loading option
                     agentSelect.innerHTML = '<option value="auto">🤖 Auto-Select Agent</option>';
                     
                     // Add available agents
-                    Object.keys(availableAgents).forEach(agentId => {
-                        const agent = availableAgents[agentId];
+                    agentsArray.forEach(agent => {
+                        const agentId = agent.agent_type || agent.agent_id;
                         const option = document.createElement('option');
                         option.value = agentId;
                         
                         // Format agent name and add status indicator
                         const statusEmoji = agent.status === 'HEALTHY' ? '✅' : '⚠️';
                         const agentName = formatAgentName(agentId);
-                        const domains = agent.domains ? ` (${agent.domains.join(', ')})` : '';
                         
-                        option.textContent = `${statusEmoji} ${agentName}${domains}`;
-                        option.title = `Status: ${agent.status}, Tools: ${agent.tools_count || 0}`;
+                        // Get domains from the agent data
+                        let domainsText = '';
+                        if (agent.domains && typeof agent.domains === 'object') {
+                            const activeDomains = Object.keys(agent.domains).filter(key => agent.domains[key]);
+                            if (activeDomains.length > 0) {
+                                domainsText = ` (${activeDomains.join(', ')})`;
+                            }
+                        }
+                        
+                        // Get capabilities
+                        const capabilities = agent.capabilities || [];
+                        const capabilitiesText = capabilities.length > 0 ? ` - ${capabilities.join(', ')}` : '';
+                        
+                        option.textContent = `${statusEmoji} ${agentName}${domainsText}`;
+                        option.title = `Status: ${agent.status}, ID: ${agent.agent_id}, Capabilities: ${capabilities.join(', ') || 'None'}`;
                         
                         agentSelect.appendChild(option);
                     });
                     
                     // Show success message
-                    if (Object.keys(availableAgents).length > 0) {
-                        addMessage('assistant', `🤖 **Loaded ${Object.keys(availableAgents).length} available agents:**\n\n${Object.keys(availableAgents).map(id => {
-                            const agent = availableAgents[id];
+                    if (agentsArray.length > 0) {
+                        addMessage('assistant', `🤖 **Loaded ${agentsArray.length} available agents:**\n\n${agentsArray.map(agent => {
+                            const agentId = agent.agent_type || agent.agent_id;
                             const statusEmoji = agent.status === 'HEALTHY' ? '✅' : '⚠️';
-                            const domains = agent.domains ? ` (${agent.domains.join(', ')})` : '';
-                            return `- ${statusEmoji} **${formatAgentName(id)}**${domains} - ${agent.tools_count || 0} tools`;
+                            const capabilities = agent.capabilities || [];
+                            const capabilitiesText = capabilities.length > 0 ? ` - ${capabilities.join(', ')}` : '';
+                            return `- ${statusEmoji} **${formatAgentName(agentId)}**${capabilitiesText}`;
                         }).join('\n')}\n\nYou can select a specific agent from the dropdown or use "Auto-Select" for intelligent routing.`);
                     } else {
                         addMessage('assistant', '⚠️ **No agents found.** Using auto-select mode only.');
@@ -1134,8 +1151,10 @@ Select your environment from the dropdown and click "Test Connection" to get sta
             // Convert agent ID to human-readable name
             return agentId
                 .replace(/_/g, ' ')
+                .replace(/agentcore/gi, 'AgentCore')
                 .replace(/strands/gi, 'Strands')
                 .replace(/aws/gi, 'AWS')
+                .replace(/api/gi, 'API')
                 .replace(/wa/gi, 'WA')
                 .replace(/sec/gi, 'Security')
                 .replace(/cost/gi, 'Cost')
@@ -1539,7 +1558,7 @@ Select your environment from the dropdown and click "Test Connection" to get sta
                 }
                 // Local environment doesn't need authentication
 
-                const response = await fetch(`${API_BASE_URL}/api/chat/local`, {
+                const response = await fetch(`${API_BASE_URL}/api/chat`, {
                     method: 'POST',
                     headers: headers,
                     credentials: currentEnv !== 'local' ? 'include' : 'same-origin',
@@ -1881,7 +1900,7 @@ Select your environment from the dropdown and click "Test Connection" to get sta
                 updateLastAssistantMessage(`🔄 Analyzing **${templateName}** template and generating response...`);
 
                 // Send request to backend
-                const response = await fetch(`${API_BASE_URL}/api/chat/local`, {
+                const response = await fetch(`${API_BASE_URL}/api/chat`, {
                     method: 'POST',
                     headers: headers,
                     credentials: currentEnv !== 'local' ? 'include' : 'same-origin',

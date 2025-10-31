@@ -1,0 +1,46 @@
+# Test dependencies for COA Backend integration tests
+
+# Core testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-timeout>=2.1.0
+pytest-json-report>=1.5.0
+pytest-cov>=4.0.0
+
+# HTTP testing
+requests>=2.28.0
+httpx>=0.24.0
+
+# Async testing
+aiohttp>=3.8.0
+
+# Mocking and fixtures
+pytest-mock>=3.10.0
+responses>=0.23.0
+
+# Test utilities
+faker>=18.0.0
+factory-boy>=3.2.0
+
+# Performance testing
+pytest-benchmark>=4.0.0
+
+# Parallel testing
+pytest-xdist>=3.0.0
+
+# Test reporting
+pytest-html>=3.1.0
+allure-pytest>=2.12.0
+
+# Code quality
+flake8>=5.0.0
+black>=22.0.0
+isort>=5.10.0
+
+# Type checking
+mypy>=1.0.0
+types-requests>=2.28.0
+
+# AWS testing utilities (if needed)
+moto>=4.0.0
+boto3-stubs>=1.26.0

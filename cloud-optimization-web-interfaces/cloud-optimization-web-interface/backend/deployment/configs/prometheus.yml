@@ -1,0 +1,85 @@
+# COA Backend Monitoring Configuration
+# Prometheus configuration for monitoring both BedrockAgent and AgentCore versions
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # COA BedrockAgent Backend
+  - job_name: 'coa-bedrockagent'
+    static_configs:
+      - targets: ['coa-bedrockagent:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    scheme: http
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'bedrockagent'
+      - source_labels: []
+        target_label: backend_version
+        replacement: 'bedrockagent'
+      - source_labels: []
+        target_label: backend_type
+        replacement: 'traditional_agents'
+
+  # COA AgentCore Backend
+  - job_name: 'coa-agentcore'
+    static_configs:
+      - targets: ['coa-agentcore:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    scheme: http
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'agentcore'
+      - source_labels: []
+        target_label: backend_version
+        replacement: 'agentcore'
+      - source_labels: []
+        target_label: backend_type
+        replacement: 'strands_agents'
+
+  # Health check monitoring
+  - job_name: 'coa-health-checks'
+    static_configs:
+      - targets: 
+          - 'coa-bedrockagent:8000'
+          - 'coa-agentcore:8000'
+    metrics_path: '/health'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    scheme: http
+
+  # Load balancer monitoring (if enabled)
+  - job_name: 'coa-loadbalancer'
+    static_configs:
+      - targets: ['coa-loadbalancer:80']
+    metrics_path: '/nginx-status'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    scheme: http
+
+  # Self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+# Alerting rules (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           # - alertmanager:9093

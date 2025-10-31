@@ -41,7 +41,7 @@ class BedrockService:
         # Default model configurations
         self.default_models = {
             "lightweight": "anthropic.claude-3-haiku-20240307-v1:0",
-            "standard": "anthropic.claude-3-5-sonnet-20241022-v2:0"
+            "standard": "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
         }
         
         # Retry configuration

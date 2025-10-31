@@ -340,8 +340,33 @@ class ConfigService:
             return {"error": str(e)}
 
 
-# Global configuration service instance
-config_service = ConfigService()
+# Global configuration service instance with dynamic parameter prefix
+def _get_param_prefix():
+    """Get parameter prefix from deployment config or environment variable"""
+    # First try environment variable
+    env_prefix = os.environ.get('PARAM_PREFIX')
+    if env_prefix:
+        return f"/{env_prefix}/"
+    
+    # Then try deployment config file
+    try:
+        import json
+        from pathlib import Path
+        
+        # Look for deployment-config.json in the project root
+        config_path = Path(__file__).parent.parent.parent.parent / "deployment-config.json"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            param_prefix = config.get('deployment', {}).get('param_prefix', 'coa')
+            return f"/{param_prefix}/"
+    except Exception as e:
+        logger.warning(f"Failed to load deployment config: {e}")
+    
+    # Fallback to default
+    return "/coa/"
+
+config_service = ConfigService(ssm_prefix=_get_param_prefix())
 
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:

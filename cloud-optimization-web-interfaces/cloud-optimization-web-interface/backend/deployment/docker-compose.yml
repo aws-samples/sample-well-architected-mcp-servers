@@ -1,0 +1,146 @@
+# MIT No Attribution
+#
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# COA Multi-Version Docker Compose Configuration
+# Supports independent deployment of BedrockAgent and AgentCore versions
+
+version: '3.8'
+
+services:
+  # BedrockAgent Version - Traditional Bedrock Agents with MCP Integration
+  coa-bedrockagent:
+    build:
+      context: ..
+      dockerfile: deployment/bedrockagent.dockerfile
+    container_name: coa-bedrockagent
+    ports:
+      - "8000:8000"
+    environment:
+      - BACKEND_MODE=bedrockagent
+      - BACKEND_VERSION=bedrockagent
+      - LOG_LEVEL=INFO
+      - ENABLE_TRADITIONAL_AGENTS=true
+      - ENABLE_MCP_INTEGRATION=true
+      - ENABLE_STRANDS_AGENTS=false
+      - ENABLE_AGENTCORE_RUNTIME=false
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - PARAM_PREFIX=${PARAM_PREFIX:-coa}
+    volumes:
+      - ../logs:/app/logs
+      - ../cache:/app/cache
+    networks:
+      - coa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - bedrockagent
+      - all
+
+  # AgentCore Version - Strands Agents with Bedrock AgentCore Runtime
+  coa-agentcore:
+    build:
+      context: ..
+      dockerfile: deployment/agentcore.dockerfile
+    container_name: coa-agentcore
+    ports:
+      - "8001:8000"
+    environment:
+      - BACKEND_MODE=agentcore
+      - BACKEND_VERSION=agentcore
+      - LOG_LEVEL=INFO
+      - ENABLE_TRADITIONAL_AGENTS=false
+      - ENABLE_MCP_INTEGRATION=false
+      - ENABLE_STRANDS_AGENTS=true
+      - ENABLE_AGENTCORE_RUNTIME=true
+      - ENABLE_GRACEFUL_DEGRADATION=true
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - PARAM_PREFIX=${PARAM_PREFIX:-coa}
+    volumes:
+      - ../logs:/app/logs
+      - ../cache:/app/cache
+    networks:
+      - coa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - agentcore
+      - all
+
+  # Load Balancer (Optional) - Routes traffic between versions
+  coa-loadbalancer:
+    image: nginx:alpine
+    container_name: coa-loadbalancer
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./configs/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./configs/ssl:/etc/nginx/ssl:ro
+    networks:
+      - coa-network
+    depends_on:
+      - coa-bedrockagent
+      - coa-agentcore
+    restart: unless-stopped
+    profiles:
+      - loadbalancer
+      - all
+
+  # Monitoring and Logging (Optional)
+  coa-monitoring:
+    image: prom/prometheus:latest
+    container_name: coa-monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - coa-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+networks:
+  coa-network:
+    driver: bridge
+    name: coa-network
+
+volumes:
+  coa-logs:
+    driver: local
+  coa-cache:
+    driver: local
+
+# Usage Examples:
+#
+# Deploy BedrockAgent version only:
+#   docker-compose --profile bedrockagent up -d
+#
+# Deploy AgentCore version only:
+#   docker-compose --profile agentcore up -d
+#
+# Deploy both versions:
+#   docker-compose --profile all up -d
+#
+# Deploy with load balancer:
+#   docker-compose --profile all --profile loadbalancer up -d
+#
+# Deploy with monitoring:
+#   docker-compose --profile all --profile monitoring up -d

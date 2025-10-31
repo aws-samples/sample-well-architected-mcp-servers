@@ -33,6 +33,18 @@ class StrandsLLMOrchestratorService:
         
         # Agent routing configuration
         self.agent_routing_rules = {
+            "aws_api": {
+                "keywords": [
+                    "list", "describe", "get", "show", "display", "find", "search",
+                    "ec2", "s3", "rds", "lambda", "vpc", "iam", "cloudformation",
+                    "instances", "buckets", "databases", "functions", "users", "roles",
+                    "resources", "infrastructure", "api", "cli", "aws cli",
+                    "account", "region", "availability zone", "subnet", "security group",
+                    "load balancer", "auto scaling", "cloudwatch", "logs", "metrics"
+                ],
+                "preferred_agent": "strands-aws-api",  # AWS API operations agent
+                "fallback_agent": "strands-aws-api"
+            },
             "security": {
                 "keywords": [
                     "security", "vulnerability", "compliance", "encryption", "access",

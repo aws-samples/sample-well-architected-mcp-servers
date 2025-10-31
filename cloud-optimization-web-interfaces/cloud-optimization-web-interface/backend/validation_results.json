@@ -1,0 +1,98 @@
+{
+  "success": false,
+  "results": {
+    "bedrockagent_isolation": {},
+    "agentcore_isolation": {},
+    "shared_compatibility": {
+      "bedrockagent_compatibility": {
+        "importable_modules": [
+          "shared.services.config_service",
+          "shared.services.auth_service",
+          "shared.services.aws_config_service",
+          "shared.services.bedrock_model_service",
+          "shared.models.chat_models",
+          "shared.models.exceptions",
+          "shared.utils.logging_utils",
+          "shared.utils.parameter_manager"
+        ],
+        "failed_imports": [],
+        "success": true
+      },
+      "agentcore_compatibility": {
+        "importable_modules": [
+          "shared.services.config_service",
+          "shared.services.auth_service",
+          "shared.services.aws_config_service",
+          "shared.services.bedrock_model_service",
+          "shared.models.chat_models",
+          "shared.models.exceptions",
+          "shared.utils.logging_utils",
+          "shared.utils.parameter_manager"
+        ],
+        "failed_imports": [],
+        "success": true
+      },
+      "success": true
+    },
+    "import_constraints": {
+      "bedrockagent_violations": [],
+      "agentcore_violations": [],
+      "shared_violations": [],
+      "success": true
+    },
+    "startup_validation": {
+      "bedrockagent_startup": {
+        "can_import_app": true,
+        "can_create_app": true,
+        "app_info": {
+          "name": "COA BedrockAgent Backend (Minimal Mode)",
+          "version": "1.0.0",
+          "description": "Traditional Bedrock Agent integration for Cloud Optimization Assistant",
+          "backend_type": "bedrockagent",
+          "mode": "minimal",
+          "features": {
+            "traditional_agents": false,
+            "mcp_integration": false,
+            "strands_agents": false,
+            "agentcore_runtime": false,
+            "graceful_degradation": true,
+            "model_fallback": true
+          },
+          "parameter_prefix": "coa",
+          "timestamp": "2025-10-31T04:18:25.529001"
+        },
+        "success": true,
+        "error": null
+      },
+      "agentcore_startup": {
+        "can_import_app": true,
+        "can_create_app": true,
+        "app_info": {
+          "name": "COA AgentCore Backend (Minimal Mode)",
+          "version": "1.0.0",
+          "description": "Strands Agent integration via Bedrock AgentCore Runtime for Cloud Optimization Assistant",
+          "backend_type": "agentcore",
+          "mode": "minimal",
+          "features": {
+            "traditional_agents": false,
+            "mcp_integration": false,
+            "strands_agents": false,
+            "agentcore_runtime": false,
+            "graceful_degradation": true,
+            "bedrock_model_fallback": true
+          },
+          "parameter_prefix": "coa",
+          "timestamp": "2025-10-31T04:18:28.213665"
+        },
+        "success": true,
+        "error": null
+      },
+      "constraint_enforcement": {
+        "bedrockagent_prevents_agentcore": false,
+        "agentcore_prevents_bedrockagent": false,
+        "success": false
+      },
+      "success": false
+    }
+  }
+}

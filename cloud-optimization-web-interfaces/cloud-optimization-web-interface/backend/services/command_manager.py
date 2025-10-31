@@ -774,16 +774,20 @@ Examples:
         try:
             logger.info("Handling runtime command")
             
-            # Import runtime orchestrator to get configuration
-            try:
-                from services.runtime_orchestrator_service import RuntimeOrchestratorService
-                
-                # Get runtime configuration from environment
-                from services.runtime_orchestrator_service import EnvironmentConfig
-                config = EnvironmentConfig.get_runtime_config()
-                
-                # Get enabled runtimes
-                enabled_runtimes = config.get_enabled_runtimes()
+            # NOTE: Runtime orchestrator service has been deprecated
+            # Using environment variables directly for runtime configuration
+            import os
+            
+            # Get runtime configuration from environment variables
+            bedrock_agent_enabled = os.getenv("BEDROCK_AGENT_ENABLED", "false").lower() == "true"
+            agentcore_enabled = os.getenv("AGENTCORE_ENABLED", "true").lower() == "true"
+            
+            # Get enabled runtimes
+            enabled_runtimes = []
+            if bedrock_agent_enabled:
+                enabled_runtimes.append("bedrock_agent")
+            if agentcore_enabled:
+                enabled_runtimes.append("agentcore")
                 
                 # Format runtime information
                 runtime_info = {
@@ -854,25 +858,21 @@ Examples:
         try:
             logger.info(f"Handling orchestrator command with args: {args}")
             
-            # Import runtime orchestrator
-            try:
-                from services.runtime_orchestrator_service import RuntimeOrchestratorService
-                
-                # Try to get orchestrator instance from main app
-                # This is a simplified approach - in practice, you'd inject this dependency
-                orchestrator = None
-                
-                # For now, create a temporary instance to get configuration
-                from services.runtime_orchestrator_service import EnvironmentConfig
-                config = EnvironmentConfig.get_runtime_config()
-                
-                # Determine what information to show based on args
-                if not args or args[0].lower() == "status":
-                    # Show orchestrator status
-                    return {
-                        "orchestrator_status": "configured",
-                        "configuration": {
-                            "bedrock_agent_enabled": config.bedrock_agent_enabled,
+            # NOTE: Runtime orchestrator service has been deprecated
+            # Using environment variables directly for orchestrator configuration
+            import os
+            
+            # Get configuration from environment variables
+            bedrock_agent_enabled = os.getenv("BEDROCK_AGENT_ENABLED", "false").lower() == "true"
+            agentcore_enabled = os.getenv("AGENTCORE_ENABLED", "true").lower() == "true"
+            
+            # Determine what information to show based on args
+            if not args or args[0].lower() == "status":
+                # Show orchestrator status
+                return {
+                    "orchestrator_status": "deprecated - using environment configuration",
+                    "configuration": {
+                        "bedrock_agent_enabled": bedrock_agent_enabled,
                             "agentcore_enabled": config.agentcore_enabled,
                             "priority_runtime": config.priority_runtime.value,
                             "fallback_enabled": config.fallback_enabled,

@@ -303,6 +303,76 @@ class StrandsAgentDiscoveryService:
         
         # Define tool mappings based on domains and MCP packages
         domain_tool_mappings = {
+            "aws_api": {
+                "mcp_package": "awslabs.aws-api-mcp-server@latest",
+                "tools": [
+                    {
+                        "name": "ListEC2Instances",
+                        "description": "List EC2 instances in the specified region",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"},
+                            "filters": {"type": "object", "description": "Optional filters for instances"}
+                        }
+                    },
+                    {
+                        "name": "DescribeVPCs",
+                        "description": "Describe VPCs and their configuration",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"},
+                            "vpc_ids": {"type": "array", "description": "Optional list of VPC IDs"}
+                        }
+                    },
+                    {
+                        "name": "ListS3Buckets",
+                        "description": "List S3 buckets and their properties",
+                        "parameters": {
+                            "include_details": {"type": "boolean", "description": "Include bucket details like encryption"}
+                        }
+                    },
+                    {
+                        "name": "GetIAMUsers",
+                        "description": "List IAM users and their permissions",
+                        "parameters": {
+                            "include_policies": {"type": "boolean", "description": "Include attached policies"}
+                        }
+                    },
+                    {
+                        "name": "DescribeRDSInstances",
+                        "description": "Describe RDS database instances",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"},
+                            "instance_ids": {"type": "array", "description": "Optional list of instance IDs"}
+                        }
+                    },
+                    {
+                        "name": "ListLambdaFunctions",
+                        "description": "List Lambda functions and their configuration",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"}
+                        }
+                    }
+                ]
+            },
+            "infrastructure": {
+                "mcp_package": "awslabs.aws-knowledge-mcp-server@latest",
+                "tools": [
+                    {
+                        "name": "SearchDocumentation",
+                        "description": "Search AWS documentation for specific topics",
+                        "parameters": {
+                            "query": {"type": "string", "description": "Search query"},
+                            "service": {"type": "string", "description": "AWS service to focus on"}
+                        }
+                    },
+                    {
+                        "name": "GetServiceInfo",
+                        "description": "Get information about AWS services and features",
+                        "parameters": {
+                            "service": {"type": "string", "description": "AWS service name"}
+                        }
+                    }
+                ]
+            },
             "security": {
                 "mcp_package": "awslabs.well-architected-security-mcp-server@latest",
                 "tools": [
