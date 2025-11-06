@@ -17,7 +17,7 @@
 
 # Multi-stage build for production optimization
 # Build stage - Install dependencies
-FROM python:3.11-slim as builder
+FROM public.ecr.aws/docker/library/python:3.11-slim as builder
 
 # Set build arguments
 ARG DEBIAN_FRONTEND=noninteractive
@@ -39,7 +39,7 @@ RUN pip install --user --no-cache-dir --upgrade pip && \
     pip install --user --no-cache-dir -r requirements.txt
 
 # Production stage - Minimal runtime image
-FROM python:3.11-slim as production
+FROM public.ecr.aws/docker/library/python:3.11-slim as production
 
 # Set production arguments
 ARG DEBIAN_FRONTEND=noninteractive

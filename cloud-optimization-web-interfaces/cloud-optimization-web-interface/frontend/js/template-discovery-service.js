@@ -12,6 +12,12 @@ class TemplateDiscoveryService {
         this.localStorageKey = 'coa_template_cache';
         this.maxCacheSize = 50; // Maximum number of templates to cache
         
+        // Debug: Log the base URL and current location
+        console.log('TemplateDiscoveryService initialized');
+        console.log('Base URL:', this.baseUrl);
+        console.log('Current location:', window.location.href);
+        console.log('Current pathname:', window.location.pathname);
+        
         // Initialize cache from localStorage
         this.loadCacheFromStorage();
     }
@@ -29,23 +35,31 @@ class TemplateDiscoveryService {
             }
 
             console.log('Scanning template directory structure...');
-            const structure = {};
-
-            // Try to discover categories by attempting to fetch known directories
-            const knownCategories = ['Security', 'Cost Optimization', 'Performance', 'Reliability', 'Operational Excellence'];
             
-            for (const category of knownCategories) {
-                try {
-                    const templates = await this.scanCategoryDirectory(category);
-                    if (templates.length > 0) {
-                        structure[category] = templates;
-                    }
-                } catch (error) {
-                    console.warn(`Category ${category} not found or inaccessible:`, error.message);
+            // Try to load from index.json first
+            try {
+                console.log('Attempting to load from index.json...');
+                const structure = await this.loadFromIndex();
+                console.log('Index.json loaded successfully:', structure);
+                
+                if (structure && Object.keys(structure).length > 0) {
+                    this.structureCache = structure;
+                    this.lastCacheUpdate = new Date();
+                    this.saveCacheToStorage();
+                    console.log('Template structure loaded from index.json:', structure);
+                    return structure;
+                } else {
+                    console.warn('Index.json loaded but structure is empty');
                 }
+            } catch (indexError) {
+                console.warn('Failed to load from index.json, falling back to directory scanning:', indexError.message);
+                console.error('Index loading error details:', indexError);
             }
 
-            // Try to discover additional categories dynamically
+            // Fallback to dynamic directory scanning method
+            const structure = {};
+            
+            // Try to discover categories dynamically by scanning the base directory
             await this.discoverAdditionalCategories(structure);
 
             this.structureCache = structure;
@@ -64,6 +78,324 @@ class TemplateDiscoveryService {
     }
 
     /**
+     * Load template structure from index.json file
+     * @returns {Promise<Object>} Template structure from index file
+     */
+    async loadFromIndex() {
+        try {
+            console.log('Loading template structure from index.json...');
+            const indexUrl = `${this.baseUrl}index.json`;
+            console.log('Full index URL:', indexUrl);
+            console.log('Attempting to fetch:', indexUrl);
+            
+            const response = await fetch(indexUrl);
+            console.log('Fetch response:', response.status, response.statusText);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText} - URL: ${indexUrl}`);
+            }
+
+            const indexData = await response.json();
+            console.log('Raw index.json data:', indexData);
+            
+            if (!indexData.categories) {
+                throw new Error('Invalid index.json format: missing categories');
+            }
+
+            const structure = {};
+            
+            // Process each category from the index
+            for (const [categoryKey, categoryData] of Object.entries(indexData.categories)) {
+                console.log(`Processing category from index: ${categoryKey}`, categoryData);
+                const templates = [];
+                
+                // Process main category templates
+                if (categoryData.templates && categoryData.templates.length > 0) {
+                    for (const templateInfo of categoryData.templates) {
+                        console.log(`Processing main template: ${templateInfo.name}`, templateInfo);
+                        
+                        const templatePath = templateInfo.path ? 
+                            `${this.baseUrl}${templateInfo.path}/${templateInfo.filename}` :
+                            `${this.baseUrl}${categoryKey}/${templateInfo.filename}`;
+                        
+                        templates.push({
+                            name: templateInfo.name,
+                            displayName: templateInfo.displayName || templateInfo.name,
+                            filename: templateInfo.filename,
+                            path: templatePath,
+                            category: categoryKey,
+                            subcategory: null,
+                            description: templateInfo.description,
+                            lastModified: templateInfo.lastModified ? new Date(templateInfo.lastModified) : null
+                        });
+                    }
+                }
+                
+                // Process subcategories if they exist
+                if (categoryData.subcategories) {
+                    for (const [subCategoryKey, subCategoryData] of Object.entries(categoryData.subcategories)) {
+                        console.log(`Processing subcategory: ${categoryKey}/${subCategoryKey}`, subCategoryData);
+                        
+                        if (subCategoryData.templates && subCategoryData.templates.length > 0) {
+                            for (const templateInfo of subCategoryData.templates) {
+                                console.log(`Processing subcategory template: ${templateInfo.name}`, templateInfo);
+                                
+                                const templatePath = templateInfo.path ? 
+                                    `${this.baseUrl}${templateInfo.path}/${templateInfo.filename}` :
+                                    `${this.baseUrl}${categoryKey}/${subCategoryKey}/${templateInfo.filename}`;
+                                
+                                templates.push({
+                                    name: templateInfo.name,
+                                    displayName: templateInfo.displayName || templateInfo.name,
+                                    filename: templateInfo.filename,
+                                    path: templatePath,
+                                    category: categoryKey,
+                                    subcategory: subCategoryKey,
+                                    description: templateInfo.description,
+                                    lastModified: templateInfo.lastModified ? new Date(templateInfo.lastModified) : null
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                if (templates.length > 0) {
+                    structure[categoryKey] = templates;
+                    console.log(`Added ${templates.length} templates to category: ${categoryKey}`);
+                }
+            }
+
+            console.log(`Loaded ${Object.keys(structure).length} categories from index.json`);
+            return structure;
+
+        } catch (error) {
+            console.error('Error loading from index.json:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Scan category directory recursively for subcategories (max 2 levels)
+     * @param {string} categoryPath - Path to category directory
+     * @returns {Promise<Object>} Category structure with subcategories
+     */
+    async scanCategoryWithSubcategories(categoryPath) {
+        const categoryName = categoryPath.split('/').pop();
+        const structure = {
+            name: categoryName,
+            templates: [],
+            subcategories: {}
+        };
+
+        try {
+            // First, try to scan for direct templates in the category
+            const directTemplates = await this.scanCategoryDirectory(categoryName);
+            structure.templates = directTemplates;
+
+            // Then, try to detect subcategories by attempting to access known subdirectories
+            const potentialSubcategories = [
+                'Auto Scaling Groups',
+                'ECS Rightsizing', 
+                'Savings Plans',
+                'Network',
+                'Identity',
+                'Storage',
+                'Compute'
+            ];
+
+            for (const subcategoryName of potentialSubcategories) {
+                try {
+                    const subcategoryPath = `${categoryPath}/${subcategoryName}/`;
+                    const isDirectory = await this.isTemplateDirectory(subcategoryPath);
+                    
+                    if (isDirectory) {
+                        const subcategoryTemplates = await this.scanSubcategoryDirectory(categoryPath, subcategoryName);
+                        if (subcategoryTemplates.length > 0) {
+                            structure.subcategories[subcategoryName] = {
+                                name: subcategoryName,
+                                templates: subcategoryTemplates
+                            };
+                            console.log(`Found subcategory: ${categoryName}/${subcategoryName} with ${subcategoryTemplates.length} templates`);
+                        } else {
+                            console.log(`Skipping empty subcategory: ${categoryName}/${subcategoryName}`);
+                        }
+                    }
+                } catch (error) {
+                    // Subcategory doesn't exist or isn't accessible, continue
+                    console.debug(`Subcategory ${categoryName}/${subcategoryName} not found:`, error.message);
+                }
+            }
+
+            return structure;
+
+        } catch (error) {
+            console.error(`Error scanning category with subcategories: ${categoryPath}`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Check if a path is a directory containing .md files
+     * @param {string} path - Path to check
+     * @returns {Promise<boolean>} True if directory with templates
+     */
+    async isTemplateDirectory(path) {
+        try {
+            // Try to access a common template file to see if directory exists
+            const testFiles = ['index.md', 'README.md', 'template.md'];
+            
+            for (const testFile of testFiles) {
+                try {
+                    const response = await fetch(`${path}${testFile}`, { method: 'HEAD' });
+                    if (response.ok) {
+                        return true;
+                    }
+                } catch (error) {
+                    // File doesn't exist, try next
+                    continue;
+                }
+            }
+
+            // If no test files found, try to access the directory itself
+            // This is a heuristic - if we can access any .md file, assume it's a template directory
+            const response = await fetch(path, { method: 'HEAD' });
+            return response.ok;
+
+        } catch (error) {
+            console.debug(`Directory check failed for ${path}:`, error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Scan a subcategory directory for template files
+     * @param {string} categoryPath - Parent category path
+     * @param {string} subcategoryName - Subcategory name
+     * @returns {Promise<Array>} Array of template objects
+     */
+    async scanSubcategoryDirectory(categoryPath, subcategoryName) {
+        const templates = [];
+        const subcategoryPath = `${categoryPath}/${subcategoryName}/`;
+
+        // Common template patterns to check
+        const templatePatterns = [
+            `${subcategoryName} - Quick Start.md`,
+            `${subcategoryName} - Analysis.md`,
+            `${subcategoryName} - Optimization.md`,
+            `${subcategoryName} - Best Practices.md`,
+            `${subcategoryName} - Assessment.md`
+        ];
+
+        // Also check for files that might be in the subcategory based on index.json
+        const knownSubcategoryFiles = {
+            'Auto Scaling Groups': [
+                'Auto Scaling Group Optimization.md',
+                'Auto Scaling Groups - Cost Analysis.md',
+                'Auto Scaling Groups - Rightsizing Recommendations.md',
+                'Auto Scaling Groups - Spot Instance Opportunities.md'
+            ],
+            'ECS Rightsizing': [
+                'EC2 Instance Rightsizing Analysis.md',
+                'EC2 Rightsizing - Quick Wins.md',
+                'EC2 Rightsizing - Top Opportunities.md',
+                'EC2 Rightsizing - Underutilized Instances.md'
+            ],
+            'Savings Plans': [
+                'Scan for saving plans options.md',
+                'Reserved Instances - Purchase Recommendations.md',
+                'Savings Plans - Compute Recommendations.md',
+                'Savings Plans - Current Utilization.md'
+            ]
+        };
+
+        const filesToCheck = knownSubcategoryFiles[subcategoryName] || templatePatterns;
+
+        for (const templateFile of filesToCheck) {
+            try {
+                const response = await fetch(`${subcategoryPath}${templateFile}`, { method: 'HEAD' });
+                if (response.ok) {
+                    templates.push({
+                        name: templateFile.replace('.md', ''),
+                        displayName: templateFile.replace('.md', ''),
+                        filename: templateFile,
+                        path: `${subcategoryPath}${templateFile}`,
+                        category: categoryPath.split('/').pop(),
+                        subcategory: subcategoryName,
+                        lastModified: response.headers.get('last-modified') ? 
+                            new Date(response.headers.get('last-modified')) : null
+                    });
+                }
+            } catch (error) {
+                // Template doesn't exist, continue checking others
+                continue;
+            }
+        }
+
+        return templates;
+    }
+
+    /**
+     * Get templates organized by category and subcategory
+     * @returns {Promise<Object>} Hierarchical template structure
+     */
+    async getHierarchicalStructure() {
+        try {
+            // First try to load from index.json which already supports hierarchical structure
+            const indexStructure = await this.loadFromIndex();
+            
+            // Convert to hierarchical format
+            const hierarchical = {};
+            
+            for (const [categoryName, templates] of Object.entries(indexStructure)) {
+                hierarchical[categoryName] = {
+                    name: categoryName,
+                    templates: templates.filter(t => !t.subcategory),
+                    subcategories: {}
+                };
+                
+                // Group templates by subcategory
+                const subcategoryGroups = {};
+                templates.filter(t => t.subcategory).forEach(template => {
+                    if (!subcategoryGroups[template.subcategory]) {
+                        subcategoryGroups[template.subcategory] = [];
+                    }
+                    subcategoryGroups[template.subcategory].push(template);
+                });
+                
+                // Add subcategories to structure
+                for (const [subcategoryName, subcategoryTemplates] of Object.entries(subcategoryGroups)) {
+                    hierarchical[categoryName].subcategories[subcategoryName] = {
+                        name: subcategoryName,
+                        templates: subcategoryTemplates
+                    };
+                }
+            }
+            
+            return hierarchical;
+            
+        } catch (error) {
+            console.error('Error getting hierarchical structure:', error);
+            
+            // Fallback to scanning directories
+            const structure = {};
+            const knownCategories = ['Security', 'Cost Optimization', 'Performance', 'Reliability', 'Operational Excellence'];
+            
+            for (const category of knownCategories) {
+                try {
+                    const categoryStructure = await this.scanCategoryWithSubcategories(category);
+                    if (categoryStructure.templates.length > 0 || Object.keys(categoryStructure.subcategories).length > 0) {
+                        structure[category] = categoryStructure;
+                    }
+                } catch (error) {
+                    console.warn(`Failed to scan category ${category}:`, error.message);
+                }
+            }
+            
+            return structure;
+        }
+    }
+
+    /**
      * Scan a specific category directory for template files
      * @param {string} category - Category name to scan
      * @returns {Promise<Array>} Array of template file objects
@@ -72,35 +404,10 @@ class TemplateDiscoveryService {
         const templates = [];
         const categoryPath = `${this.baseUrl}${category}/`;
 
-        // Common template file names to check
-        const commonTemplates = [
-            'Security Services.md',
-            'Check Network Encryption.md', 
-            'Storage Encryption Analysis.md',
-            'Scan for saving plans options.md',
-            'Insights from Compute Optimizer.md',
-            'Performance Analysis.md',
-            'Reliability Assessment.md',
-            'Operational Excellence Review.md'
-        ];
-
-        for (const templateName of commonTemplates) {
-            try {
-                const response = await fetch(`${categoryPath}${templateName}`, { method: 'HEAD' });
-                if (response.ok) {
-                    templates.push({
-                        name: templateName.replace('.md', ''),
-                        displayName: templateName.replace('.md', ''),
-                        path: `${categoryPath}${templateName}`,
-                        category: category,
-                        lastModified: response.headers.get('last-modified') ? new Date(response.headers.get('last-modified')) : null
-                    });
-                }
-            } catch (error) {
-                // Template doesn't exist, continue checking others
-                continue;
-            }
-        }
+        // Since we can't directly list directory contents from the browser,
+        // we'll rely on the index.json file or return empty array for fallback
+        console.warn(`Cannot dynamically scan category directory: ${category}`);
+        console.warn('Browser security prevents directory listing. Use index.json for template discovery.');
 
         return templates;
     }
@@ -508,6 +815,23 @@ Please provide details about your specific requirements and I'll assist you acco
     }
 
     /**
+     * Force refresh templates by clearing all caches and reloading
+     * @returns {Promise<Object>} Fresh template structure
+     */
+    async forceRefresh() {
+        console.log('🔄 Force refreshing templates...');
+        
+        // Clear all caches
+        this.invalidateCache('force_refresh');
+        
+        // Force reload from server
+        const freshStructure = await this.scanTemplateDirectory();
+        
+        console.log('✅ Templates force refreshed successfully');
+        return freshStructure;
+    }
+
+    /**
      * Update cache with new data
      * @param {Object} structure - New template structure
      * @param {Map} contentCache - New content cache
@@ -591,6 +915,86 @@ Please provide details about your specific requirements and I'll assist you acco
             console.log('Cache warm-up completed');
         } catch (error) {
             console.warn('Cache warm-up failed:', error);
+        }
+    }
+
+    /**
+     * Add a new template to the index (for future backend integration)
+     * @param {string} category - Category name
+     * @param {Object} templateInfo - Template information
+     * @returns {Promise<boolean>} Success status
+     */
+    async addTemplateToIndex(category, templateInfo) {
+        try {
+            console.log(`Adding template to index: ${category}/${templateInfo.name}`);
+            
+            // This would typically be handled by a backend API
+            // For now, we'll just invalidate the cache to force a refresh
+            this.invalidateCache('new_template_added');
+            
+            // Emit event for UI updates
+            const event = new CustomEvent('templateAdded', {
+                detail: { category, templateInfo }
+            });
+            document.dispatchEvent(event);
+            
+            return true;
+        } catch (error) {
+            console.error('Error adding template to index:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Refresh index from server (for future backend integration)
+     * @returns {Promise<Object>} Updated template structure
+     */
+    async refreshIndex() {
+        try {
+            console.log('Refreshing template index from server...');
+            
+            // Force reload from index.json
+            this.invalidateCache('manual_refresh');
+            const structure = await this.loadFromIndex();
+            
+            // Emit refresh event
+            const event = new CustomEvent('templateIndexRefreshed', {
+                detail: { structure }
+            });
+            document.dispatchEvent(event);
+            
+            return structure;
+        } catch (error) {
+            console.error('Error refreshing index:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get index metadata
+     * @returns {Promise<Object>} Index metadata
+     */
+    async getIndexMetadata() {
+        try {
+            const indexUrl = `${this.baseUrl}index.json`;
+            const response = await fetch(indexUrl);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const indexData = await response.json();
+            
+            return {
+                version: indexData.version,
+                lastUpdated: indexData.lastUpdated,
+                categoryCount: Object.keys(indexData.categories || {}).length,
+                totalTemplates: Object.values(indexData.categories || {})
+                    .reduce((total, category) => total + (category.templates?.length || 0), 0)
+            };
+        } catch (error) {
+            console.error('Error getting index metadata:', error);
+            return null;
         }
     }
 

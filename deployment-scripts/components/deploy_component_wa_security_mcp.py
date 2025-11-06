@@ -29,6 +29,10 @@ import sys
 import time
 from pathlib import Path
 
+# Add parent directory to path to import configuration manager
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.config_manager import DeploymentConfigManager
+
 import boto3
 from bedrock_agentcore_starter_toolkit import Runtime
 from boto3.session import Session
@@ -252,26 +256,38 @@ def main():
     try:
         ssm_client = boto3.client("ssm", region_name=region)
 
+        # Get dynamic parameter prefix from configuration
+        try:
+            config_manager = DeploymentConfigManager()
+            components_path = config_manager.get_parameter_path('components')
+            param_prefix = config_manager.get_param_prefix()
+            print(f"Using dynamic parameter path: {components_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to load configuration manager: {e}")
+            print("Falling back to legacy parameter paths")
+            components_path = "/coa/components"
+            param_prefix = "coa"
+
         # Store Agent ARN in component-specific path
         ssm_client.put_parameter(
-            Name="/coa/components/wa_security_mcp/agent_arn",
+            Name=f"{components_path}/wa_security_mcp/agent_arn",
             Value=launch_result.agent_arn,
             Type="String",
-            Description="Agent ARN for WA Security MCP server",
+            Description=f"[{param_prefix}] Agent ARN for WA Security MCP server",
             Overwrite=True,
         )
 
         ssm_client.put_parameter(
-            Name="/coa/components/wa_security_mcp/agent_id",
+            Name=f"{components_path}/wa_security_mcp/agent_id",
             Value=launch_result.agent_id,
             Type="String",
-            Description="Agent ID for WA Security MCP server",
+            Description=f"[{param_prefix}] Agent ID for WA Security MCP server",
             Overwrite=True,
         )
 
         # Store additional metadata
         ssm_client.put_parameter(
-            Name="/coa/components/wa_security_mcp/deployment_type",
+            Name=f"{components_path}/wa_security_mcp/deployment_type",
             Value="custom_build",
             Type="String",
             Description="Deployment type for WA Security MCP server",
@@ -279,10 +295,10 @@ def main():
         )
 
         ssm_client.put_parameter(
-            Name="/coa/components/wa_security_mcp/region",
+            Name=f"{components_path}/wa_security_mcp/region",
             Value=region,
             Type="String",
-            Description="AWS region for WA Security MCP server",
+            Description=f"[{param_prefix}] AWS region for WA Security MCP server",
             Overwrite=True,
         )
 
@@ -298,17 +314,17 @@ def main():
         }
 
         ssm_client.put_parameter(
-            Name="/coa/components/wa_security_mcp/connection_info",
+            Name=f"{components_path}/wa_security_mcp/connection_info",
             Value=json.dumps(connection_info, indent=2),
             Type="String",
-            Description="Complete connection information for WA Security MCP server",
+            Description=f"[{param_prefix}] Complete connection information for WA Security MCP server",
             Overwrite=True,
         )
 
         print("✓ Component configuration stored in Parameter Store")
-        print("  Agent ARN: /coa/components/wa_security_mcp/agent_arn")
-        print("  Agent ID: /coa/components/wa_security_mcp/agent_id")
-        print("  Connection Info: /coa/components/wa_security_mcp/connection_info")
+        print(f"  Agent ARN: {components_path}/wa_security_mcp/agent_arn")
+        print(f"  Agent ID: {components_path}/wa_security_mcp/agent_id")
+        print(f"  Connection Info: {components_path}/wa_security_mcp/connection_info")
 
     except Exception as e:
         print(f"❌ Failed to store configuration: {e}")
@@ -324,9 +340,12 @@ def main():
     print("Deployment Type: custom_build")
     print("\nThe Well-Architected Security MCP Server is now deployed and ready!")
     print("It uses the shared Cognito user pool for authentication.")
-    print(
-        "Configuration stored in Parameter Store under /coa/components/wa_security_mcp/*"
-    )
+    try:
+        config_manager = DeploymentConfigManager()
+        components_path = config_manager.get_parameter_path('components')
+        print(f"Configuration stored in Parameter Store under {components_path}/wa_security_mcp/*")
+    except Exception:
+        print("Configuration stored in Parameter Store under /coa/components/wa_security_mcp/*")
 
 
 if __name__ == "__main__":

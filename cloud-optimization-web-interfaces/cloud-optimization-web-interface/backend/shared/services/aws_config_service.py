@@ -1,0 +1,72 @@
+# MIT No Attribution
+#
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+# MIT No Attribution
+"""
+AWS Configuration Service
+"""
+
+import logging
+from typing import Any, Dict
+
+import boto3
+from services.config_service import get_config
+
+logger = logging.getLogger(__name__)
+
+
+class AWSConfigService:
+    def __init__(self):
+        self._sts_client = None
+
+    @property
+    def sts_client(self):
+        """Lazy initialization of STS client"""
+        if self._sts_client is None:
+            try:
+                self._sts_client = boto3.client("sts")
+            except Exception as e:
+                logger.warning(f"Could not initialize STS client: {str(e)}")
+                self._sts_client = None
+        return self._sts_client
+
+    async def get_current_config(self) -> Dict[str, Any]:
+        """Get current AWS configuration"""
+        try:
+            if self.sts_client:
+                identity = self.sts_client.get_caller_identity()
+                return {
+                    "account_id": identity.get("Account"),
+                    "region": get_config("AWS_DEFAULT_REGION", "us-east-1"),
+                    "role_arn": identity.get("Arn"),
+                    "status": "configured",
+                }
+            else:
+                raise Exception("STS client not available")
+        except Exception as e:
+            logger.error(f"Failed to get AWS config: {str(e)}")
+            return {
+                "account_id": None,
+                "region": get_config("AWS_DEFAULT_REGION", "us-east-1"),
+                "role_arn": None,
+                "status": "not_configured",
+            }
+
+    async def update_config(self, **kwargs) -> Dict[str, Any]:
+        """Update AWS configuration"""
+        # For demo purposes, just return current config
+        return await self.get_current_config()

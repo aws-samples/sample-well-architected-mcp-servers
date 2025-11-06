@@ -1,0 +1,80 @@
+default_agent: agentcore_api
+agents:
+  agentcore_aws_api:
+    name: agentcore_aws_api
+    entrypoint: /Users/bobyeh/MyWorkspace/well-architected-automation/sample-well-architected-mcp-servers/agents/strands-agents/strands-aws-api/main.py
+    platform: linux/arm64
+    container_runtime: docker
+    source_path: /Users/bobyeh/MyWorkspace/well-architected-automation/sample-well-architected-mcp-servers/agents/strands-agents/strands-aws-api
+    aws:
+      execution_role: arn:aws:iam::384612698411:role/coa1129t3-bedrock-agentcore-runtime-role
+      execution_role_auto_create: true
+      account: '384612698411'
+      region: us-east-1
+      ecr_repository: 384612698411.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-agentcore_aws_api
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: agentcore_aws_api-yHLaCd55qy
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:384612698411:runtime/agentcore_aws_api-yHLaCd55qy
+      agent_session_id: null
+    codebuild:
+      project_name: bedrock-agentcore-agentcore_aws_api-builder
+      execution_role: arn:aws:iam::384612698411:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-e8aeac85f7
+      source_bucket: bedrock-agentcore-codebuild-sources-384612698411-us-east-1
+    memory:
+      mode: STM_ONLY
+      memory_id: agentcore_aws_api_mem-AeTaQ5AduA
+      memory_arn: arn:aws:bedrock-agentcore:us-east-1:384612698411:memory/agentcore_aws_api_mem-AeTaQ5AduA
+      memory_name: agentcore_aws_api_mem
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: true
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+  agentcore_api:
+    name: agentcore_api
+    entrypoint: /Users/bobyeh/MyWorkspace/well-architected-automation/sample-well-architected-mcp-servers/agents/strands-agents/strands-aws-api/main.py
+    platform: linux/arm64
+    container_runtime: docker
+    source_path: /Users/bobyeh/MyWorkspace/well-architected-automation/sample-well-architected-mcp-servers/agents/strands-agents/strands-aws-api
+    aws:
+      execution_role: arn:aws:iam::256358067059:role/coav2-bedrock-agentcore-runtime-role
+      execution_role_auto_create: true
+      account: '256358067059'
+      region: us-east-1
+      ecr_repository: 256358067059.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-agentcore_api
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: agentcore_api-HCa5zSAfY4
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:256358067059:runtime/agentcore_api-HCa5zSAfY4
+      agent_session_id: 39f66c5c-73a6-4538-a0dc-afe79f3633b5
+    codebuild:
+      project_name: bedrock-agentcore-agentcore_api-builder
+      execution_role: arn:aws:iam::256358067059:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-cbfce446f8
+      source_bucket: bedrock-agentcore-codebuild-sources-256358067059-us-east-1
+    memory:
+      mode: STM_ONLY
+      memory_id: agentcore_api_mem-noeEDO6QmO
+      memory_arn: arn:aws:bedrock-agentcore:us-east-1:256358067059:memory/agentcore_api_mem-noeEDO6QmO
+      memory_name: agentcore_api_mem
+      event_expiry_days: 30
+      first_invoke_memory_check_done: true
+      was_created_by_toolkit: true
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null

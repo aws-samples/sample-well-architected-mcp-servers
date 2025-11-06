@@ -149,18 +149,42 @@ class ConfigService:
         return default
 
     def _get_ssm_parameter(self, key: str) -> Optional[str]:
-        """Get parameter from SSM Parameter Store"""
+        """Get parameter from SSM Parameter Store with fallback to legacy paths"""
         if not self.ssm_client or self._ssm_available is False:
             return None
 
-        # Map configuration keys to SSM parameter names
-        # Updated to use new Strands agents instead of legacy Bedrock agents
-        parameter_mapping = {
+        # Try to use parameter manager with fallback if available
+        try:
+            from utils.parameter_manager import get_parameter_manager
+            parameter_manager = get_parameter_manager()
+            
+            # Map configuration keys to category and parameter names
+            parameter_mapping = {
+                "ENHANCED_SECURITY_AGENT_ID": ("agents", "strands_aws_wa_sec_cost/agent_id"),
+                "ENHANCED_SECURITY_AGENT_ALIAS_ID": ("agents", "strands_aws_wa_sec_cost/agent_alias_id"),
+            }
+            
+            if key in parameter_mapping:
+                category, param_name = parameter_mapping[key]
+                try:
+                    # Try with parameter manager fallback
+                    value = parameter_manager.get_parameter_with_fallback(category, param_name)
+                    if value:
+                        logger.info(f"Retrieved {key} using parameter manager")
+                        return value
+                except Exception as e:
+                    logger.debug(f"Parameter manager fallback failed for {key}: {e}")
+            
+        except Exception as e:
+            logger.debug(f"Parameter manager not available: {e}")
+
+        # Fallback to direct SSM access with legacy paths
+        legacy_parameter_mapping = {
             "ENHANCED_SECURITY_AGENT_ID": "/coa/agents/strands_aws_wa_sec_cost/agent_id",
             "ENHANCED_SECURITY_AGENT_ALIAS_ID": "/coa/agents/strands_aws_wa_sec_cost/agent_alias_id",
         }
 
-        parameter_name = parameter_mapping.get(key)
+        parameter_name = legacy_parameter_mapping.get(key)
         if not parameter_name:
             return None
 
@@ -170,6 +194,7 @@ class ConfigService:
                 WithDecryption=True,  # Decrypt SecureString parameters
             )
             value = response["Parameter"]["Value"]
+            logger.warning(f"Using legacy parameter path for {key}: {parameter_name}")
 
             # Special handling for USE_MULTI_AGENT_SUPERVISOR - extract status from metadata
             if key == "USE_MULTI_AGENT_SUPERVISOR":
@@ -315,8 +340,33 @@ class ConfigService:
             return {"error": str(e)}
 
 
-# Global configuration service instance
-config_service = ConfigService()
+# Global configuration service instance with dynamic parameter prefix
+def _get_param_prefix():
+    """Get parameter prefix from deployment config or environment variable"""
+    # First try environment variable
+    env_prefix = os.environ.get('PARAM_PREFIX')
+    if env_prefix:
+        return f"/{env_prefix}/"
+    
+    # Then try deployment config file
+    try:
+        import json
+        from pathlib import Path
+        
+        # Look for deployment-config.json in the project root
+        config_path = Path(__file__).parent.parent.parent.parent / "deployment-config.json"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            param_prefix = config.get('deployment', {}).get('param_prefix', 'coa')
+            return f"/{param_prefix}/"
+    except Exception as e:
+        logger.warning(f"Failed to load deployment config: {e}")
+    
+    # Fallback to default
+    return "/coa/"
+
+config_service = ConfigService(ssm_prefix=_get_param_prefix())
 
 
 def get_config(key: str, default: Optional[str] = None) -> Optional[str]:

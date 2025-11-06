@@ -24,9 +24,15 @@ This creates a centralized Cognito user pool that can be used by all components
 
 import json
 import logging
+import os
+import sys
 from typing import Any, Dict
 
 import boto3
+
+# Add parent directory to path to import configuration manager
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.config_manager import DeploymentConfigManager
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -386,66 +392,78 @@ class SharedCognitoDeployer:
             raise
 
     def _store_parameters(self, outputs: Dict[str, str]) -> None:
-        """Store Cognito configuration in standardized Parameter Store paths"""
+        """Store Cognito configuration in dynamic Parameter Store paths"""
         logger.info("Storing configuration in Parameter Store...")
 
         ssm_client = boto3.client("ssm", region_name=self.region)
 
-        # Define standardized parameter mappings
+        # Get dynamic parameter prefix from configuration
+        try:
+            config_manager = DeploymentConfigManager()
+            cognito_path = config_manager.get_parameter_path('cognito')
+            param_prefix = config_manager.get_param_prefix()
+            logger.info(f"Using dynamic parameter path: {cognito_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load configuration manager: {e}")
+            logger.warning("Falling back to legacy parameter paths")
+            cognito_path = "/coa/cognito"
+            param_prefix = "coa"
+
+        # Define dynamic parameter mappings
         parameters = [
             {
-                "Name": "/coa/cognito/user_pool_id",
+                "Name": f"{cognito_path}/user_pool_id",
                 "Value": outputs["UserPoolId"],
                 "Type": "String",
-                "Description": "Shared Cognito User Pool ID for Cloud Optimization Platform",
+                "Description": f"[{param_prefix}] Shared Cognito User Pool ID for Cloud Optimization Platform",
             },
             {
-                "Name": "/coa/cognito/web_app_client_id",
+                "Name": f"{cognito_path}/web_app_client_id",
                 "Value": outputs["WebAppClientId"],
                 "Type": "String",
-                "Description": "Web Application Client ID for frontend apps",
+                "Description": f"[{param_prefix}] Web Application Client ID for frontend apps",
             },
             {
-                "Name": "/coa/cognito/api_client_id",
+                "Name": f"{cognito_path}/api_client_id",
                 "Value": outputs["APIClientId"],
                 "Type": "String",
-                "Description": "API Client ID for backend services",
+                "Description": f"[{param_prefix}] API Client ID for backend services",
             },
             {
-                "Name": "/coa/cognito/mcp_server_client_id",
+                "Name": f"{cognito_path}/mcp_server_client_id",
                 "Value": outputs["MCPServerClientId"],
                 "Type": "String",
-                "Description": "MCP Server Client ID for AgentCore Runtime",
+                "Description": f"[{param_prefix}] MCP Server Client ID for AgentCore Runtime",
             },
             {
-                "Name": "/coa/cognito/identity_pool_id",
+                "Name": f"{cognito_path}/identity_pool_id",
                 "Value": outputs["IdentityPoolId"],
                 "Type": "String",
-                "Description": "Cognito Identity Pool ID for AWS resource access",
+                "Description": f"[{param_prefix}] Cognito Identity Pool ID for AWS resource access",
             },
             {
-                "Name": "/coa/cognito/user_pool_domain",
+                "Name": f"{cognito_path}/user_pool_domain",
                 "Value": outputs["UserPoolDomain"],
                 "Type": "String",
-                "Description": "Cognito User Pool Domain for OAuth flows",
+                "Description": f"[{param_prefix}] Cognito User Pool Domain for OAuth flows",
             },
             {
-                "Name": "/coa/cognito/discovery_url",
+                "Name": f"{cognito_path}/discovery_url",
                 "Value": outputs["DiscoveryUrl"],
                 "Type": "String",
-                "Description": "OIDC Discovery URL for JWT validation",
+                "Description": f"[{param_prefix}] OIDC Discovery URL for JWT validation",
             },
             {
-                "Name": "/coa/cognito/region",
+                "Name": f"{cognito_path}/region",
                 "Value": self.region,
                 "Type": "String",
-                "Description": "AWS Region where Cognito is deployed",
+                "Description": f"[{param_prefix}] AWS Region where Cognito is deployed",
             },
             {
-                "Name": "/coa/cognito/user_pool_arn",
+                "Name": f"{cognito_path}/user_pool_arn",
                 "Value": outputs["UserPoolArn"],
                 "Type": "String",
-                "Description": "Cognito User Pool ARN",
+                "Description": f"[{param_prefix}] Cognito User Pool ARN",
             },
         ]
 

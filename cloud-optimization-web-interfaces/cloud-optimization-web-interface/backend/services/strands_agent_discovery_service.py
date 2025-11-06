@@ -53,8 +53,9 @@ class MCPToolInfo:
 class StrandsAgentDiscoveryService:
     """Service for discovering and managing StrandsAgents in AgentCore Runtime"""
     
-    def __init__(self, region: str = "us-east-1"):
+    def __init__(self, region: str = "us-east-1", param_prefix: str = "coa"):
         self.region = region
+        self.param_prefix = param_prefix
         self.ssm_client = boto3.client("ssm", region_name=region)
         self.session = boto3.Session()
         
@@ -73,7 +74,7 @@ class StrandsAgentDiscoveryService:
         # AgentCore runtime configuration
         self.agentcore_base_url = f"https://bedrock-agentcore.{region}.amazonaws.com"
         
-        logger.info("StrandsAgent Discovery Service initialized")
+        logger.info(f"StrandsAgent Discovery Service initialized with param_prefix: {param_prefix}")
 
     async def discover_strands_agents(self, force_refresh: bool = False) -> Dict[str, StrandsAgentInfo]:
         """Discover all StrandsAgents from SSM Parameter Store"""
@@ -85,19 +86,28 @@ class StrandsAgentDiscoveryService:
         logger.info("Discovering StrandsAgents from SSM Parameter Store...")
         
         try:
-            # Get all agent parameters under /coa/agents/
+            # Get all agent parameters under /{param_prefix}/agentcore/
+            agentcore_path = f"/{self.param_prefix}/agentcore/"
             response = self.ssm_client.get_parameters_by_path(
-                Path="/coa/agents/",
+                Path=agentcore_path,
                 Recursive=True,
                 WithDecryption=True
             )
             
+            logger.info(f"Searching for StrandsAgents in {agentcore_path}")
+            logger.info(f"Found {len(response.get('Parameters', []))} parameters")
+            
+            # Log all parameter names for debugging
+            for param in response.get('Parameters', []):
+                logger.info(f"Found parameter: {param['Name']}")
+            
             # Group parameters by agent type
             agent_params = {}
             for param in response.get('Parameters', []):
+                logger.debug(f"Processing parameter: {param['Name']} = {param['Value'][:100]}...")
                 path_parts = param['Name'].split('/')
                 if len(path_parts) >= 4:
-                    agent_type = path_parts[3]  # /coa/agents/{agent_type}/{param_name}
+                    agent_type = path_parts[3]  # /{param_prefix}/agentcore/{agent_type}/{param_name}
                     param_name = path_parts[4] if len(path_parts) > 4 else "root"
                     
                     if agent_type not in agent_params:
@@ -105,31 +115,55 @@ class StrandsAgentDiscoveryService:
                     
                     agent_params[agent_type][param_name] = param['Value']
             
+            logger.info(f"Grouped parameters for {len(agent_params)} agent types: {list(agent_params.keys())}")
+            
             # Create StrandsAgentInfo objects
             discovered_agents = {}
             
             for agent_type, params in agent_params.items():
                 try:
+                    logger.info(f"Processing agent {agent_type} with parameters: {list(params.keys())}")
+                    
                     # Only process StrandsAgents (check for framework in metadata)
                     metadata = {}
                     if 'metadata' in params:
                         try:
                             metadata = json.loads(params['metadata'])
+                            logger.info(f"Agent {agent_type} metadata: {metadata}")
                         except json.JSONDecodeError:
                             logger.warning(f"Failed to parse metadata for {agent_type}")
                             continue
+                    else:
+                        logger.warning(f"Agent {agent_type} has no metadata parameter")
                     
-                    # Skip if not a Strands agent
-                    if metadata.get('framework') != 'strands':
-                        logger.debug(f"Skipping non-Strands agent: {agent_type}")
+                    # Check if this is a Strands agent
+                    framework = metadata.get('framework', 'unknown')
+                    agent_type_meta = metadata.get('agent_type', 'unknown')
+                    
+                    logger.info(f"Agent {agent_type} framework: {framework}, agent_type: {agent_type_meta}")
+                    
+                    # Accept agents with framework='strands' OR agent_type='strands_agent'
+                    is_strands_agent = (framework == 'strands' or agent_type_meta == 'strands_agent')
+                    
+                    if not is_strands_agent:
+                        logger.info(f"Skipping non-Strands agent: {agent_type} (framework: {framework}, agent_type: {agent_type_meta})")
                         continue
                     
                     # Extract required parameters
                     agent_arn = params.get('agent_arn')
                     endpoint_url = params.get('endpoint_url')
                     
-                    if not agent_arn or not endpoint_url:
-                        logger.warning(f"StrandsAgent {agent_type} missing required parameters")
+                    # For AgentCore agents, endpoint_url might not be required (they use ARN-based invocation)
+                    if not agent_arn:
+                        logger.warning(f"StrandsAgent {agent_type} missing agent_arn parameter")
+                        continue
+                    
+                    # Generate endpoint URL if missing for AgentCore agents
+                    if not endpoint_url and 'agentcore' in agent_arn.lower():
+                        endpoint_url = f"arn-based-invocation://{agent_arn}"
+                        logger.info(f"Generated ARN-based endpoint for AgentCore agent {agent_type}")
+                    elif not endpoint_url:
+                        logger.warning(f"StrandsAgent {agent_type} missing endpoint_url parameter")
                         continue
                     
                     # Extract agent ID from ARN
@@ -195,7 +229,24 @@ class StrandsAgentDiscoveryService:
     async def _check_agent_health(self, agent_info: StrandsAgentInfo) -> str:
         """Check health of a specific StrandsAgent"""
         try:
-            # Create signed request for AgentCore endpoint
+            # For AgentCore agents (ARN-based invocation), skip HTTP health check
+            if agent_info.endpoint_url and agent_info.endpoint_url.startswith("arn-based-invocation://"):
+                logger.info(f"AgentCore agent {agent_info.agent_type} - skipping HTTP health check, using ARN validation")
+                
+                # Validate ARN format for AgentCore
+                if (agent_info.agent_arn and 
+                    "bedrock-agentcore" in agent_info.agent_arn and 
+                    "runtime/" in agent_info.agent_arn):
+                    logger.info(f"AgentCore agent {agent_info.agent_type} has valid ARN - marking as HEALTHY")
+                    return "HEALTHY"
+                else:
+                    logger.warning(f"AgentCore agent {agent_info.agent_type} has invalid ARN format")
+                    return "UNHEALTHY"
+            
+            # For traditional HTTP-based StrandsAgents, perform HTTP health check
+            logger.info(f"Performing HTTP health check for {agent_info.agent_type}")
+            
+            # Create signed request for HTTP endpoint
             request = AWSRequest(
                 method='GET',
                 url=agent_info.health_check_url,
@@ -206,15 +257,15 @@ class StrandsAgentDiscoveryService:
             credentials = self.session.get_credentials()
             SigV4Auth(credentials, 'bedrock-agentcore', self.region).add_auth(request)
             
-            # Make the request (in a real implementation)
-            # For now, simulate based on agent configuration
+            # For now, simulate HTTP health check
+            # In a real implementation, you would make the actual HTTP request
             if agent_info.endpoint_url and agent_info.agent_arn:
                 return "HEALTHY"
             else:
                 return "UNHEALTHY"
                 
         except Exception as e:
-            logger.error(f"Health check request failed: {e}")
+            logger.error(f"Health check failed for {agent_info.agent_type}: {e}")
             return "UNHEALTHY"
 
     async def _discover_tools_from_agents(self):
@@ -252,6 +303,76 @@ class StrandsAgentDiscoveryService:
         
         # Define tool mappings based on domains and MCP packages
         domain_tool_mappings = {
+            "aws_api": {
+                "mcp_package": "awslabs.aws-api-mcp-server@latest",
+                "tools": [
+                    {
+                        "name": "ListEC2Instances",
+                        "description": "List EC2 instances in the specified region",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"},
+                            "filters": {"type": "object", "description": "Optional filters for instances"}
+                        }
+                    },
+                    {
+                        "name": "DescribeVPCs",
+                        "description": "Describe VPCs and their configuration",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"},
+                            "vpc_ids": {"type": "array", "description": "Optional list of VPC IDs"}
+                        }
+                    },
+                    {
+                        "name": "ListS3Buckets",
+                        "description": "List S3 buckets and their properties",
+                        "parameters": {
+                            "include_details": {"type": "boolean", "description": "Include bucket details like encryption"}
+                        }
+                    },
+                    {
+                        "name": "GetIAMUsers",
+                        "description": "List IAM users and their permissions",
+                        "parameters": {
+                            "include_policies": {"type": "boolean", "description": "Include attached policies"}
+                        }
+                    },
+                    {
+                        "name": "DescribeRDSInstances",
+                        "description": "Describe RDS database instances",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"},
+                            "instance_ids": {"type": "array", "description": "Optional list of instance IDs"}
+                        }
+                    },
+                    {
+                        "name": "ListLambdaFunctions",
+                        "description": "List Lambda functions and their configuration",
+                        "parameters": {
+                            "region": {"type": "string", "description": "AWS region to query"}
+                        }
+                    }
+                ]
+            },
+            "infrastructure": {
+                "mcp_package": "awslabs.aws-knowledge-mcp-server@latest",
+                "tools": [
+                    {
+                        "name": "SearchDocumentation",
+                        "description": "Search AWS documentation for specific topics",
+                        "parameters": {
+                            "query": {"type": "string", "description": "Search query"},
+                            "service": {"type": "string", "description": "AWS service to focus on"}
+                        }
+                    },
+                    {
+                        "name": "GetServiceInfo",
+                        "description": "Get information about AWS services and features",
+                        "parameters": {
+                            "service": {"type": "string", "description": "AWS service name"}
+                        }
+                    }
+                ]
+            },
             "security": {
                 "mcp_package": "awslabs.well-architected-security-mcp-server@latest",
                 "tools": [
@@ -412,17 +533,20 @@ class StrandsAgentDiscoveryService:
                     )
                     
                     # Process AgentCore response
-                    # The response from invoke_agent_runtime should contain the agent's output
-                    response_body = response.get('body')
+                    # The response from invoke_agent_runtime contains a StreamingBody in 'response' field
+                    response_body = response.get('response')  # Correct field name per AWS docs
+                    status_code = response.get('statusCode', 0)
+                    
+                    logger.info(f"AgentCore response status: {status_code}")
                     
                     if response_body:
-                        # Read the response body (it might be a stream)
+                        # Read the response body (it's a StreamingBody object)
                         if hasattr(response_body, 'read'):
                             full_response = response_body.read().decode('utf-8')
                         else:
                             full_response = str(response_body)
                     else:
-                        full_response = "AgentCore response received but no body content"
+                        full_response = f"AgentCore response received with status {status_code} but no response content"
                     
                     # For AgentCore, we might not get detailed trace information
                     # but we can infer tool usage from the response content
@@ -454,18 +578,18 @@ class StrandsAgentDiscoveryService:
             # Fallback to simulation for development/testing
             logger.info(f"Using simulated response for StrandsAgent: {agent_type}")
             
-            # Generate realistic simulated response with tool execution results
-            tools_to_simulate = agent_info.available_tools[:2] if agent_info.available_tools else ["CheckSecurityServices", "GetSecurityFindings"]
+            # Generate realistic simulated response with agent-type aware tools
+            tools_to_simulate = self._get_agent_specific_tools(agent_type, agent_info)
             
             simulated_response = {
-                "response": self._generate_realistic_security_analysis_response(prompt, agent_type),
+                "response": self._generate_agent_specific_response(prompt, agent_type),
                 "agent_type": agent_type,
                 "session_id": session_id,
                 "tools_used": tools_to_simulate,
                 "domains_analyzed": list(agent_info.domains.keys()),
                 "status": "success",
                 "execution_time_ms": 2500,
-                "tool_execution_results": self._generate_realistic_tool_results(prompt, tools_to_simulate),
+                "tool_execution_results": self._generate_agent_specific_tool_results(prompt, tools_to_simulate, agent_type),
                 "simulation_mode": True
             }
             
@@ -571,6 +695,306 @@ Please execute this tool and provide the results in a structured format."""
                 "agent_type": agent_type,
                 "error": str(e)
             }
+
+    def _get_agent_specific_tools(self, agent_type: str, agent_info: StrandsAgentInfo) -> List[str]:
+        """Get appropriate tools based on agent type and configuration"""
+        
+        # First, try to use configured tools from agent metadata
+        if agent_info.available_tools:
+            return agent_info.available_tools[:3]  # Limit to 3 tools for simulation
+        
+        # Fallback to agent-type specific tools based on naming
+        agent_type_lower = agent_type.lower()
+        
+        if any(keyword in agent_type_lower for keyword in ["aws-api", "api", "cli", "aws"]):
+            return ["suggest_aws_commands", "call_aws", "validate_credential_configuration"]
+        elif any(keyword in agent_type_lower for keyword in ["cost", "billing", "expense", "optimization"]):
+            return ["GetCostAnalysis", "GetRightsizingRecommendations", "GetReservedInstanceRecommendations"]
+        elif any(keyword in agent_type_lower for keyword in ["security", "sec", "compliance", "vulnerability"]):
+            return ["CheckSecurityServices", "GetSecurityFindings", "CheckStorageEncryption"]
+        elif any(keyword in agent_type_lower for keyword in ["performance", "perf", "reliability"]):
+            return ["CheckPerformanceMetrics", "GetReliabilityAssessment", "AnalyzeResourceUtilization"]
+        else:
+            # Default to AWS API tools for unknown agent types (safer than cost tools)
+            return ["suggest_aws_commands", "call_aws", "validate_credential_configuration"]
+
+    def _generate_agent_specific_response(self, prompt: str, agent_type: str) -> str:
+        """Generate agent-specific response based on agent type"""
+        
+        agent_type_lower = agent_type.lower()
+        
+        if any(keyword in agent_type_lower for keyword in ["aws-api", "api", "cli", "aws"]):
+            return self._generate_realistic_aws_api_response(prompt, agent_type)
+        elif any(keyword in agent_type_lower for keyword in ["cost", "billing", "expense", "optimization"]):
+            return self._generate_realistic_cost_analysis_response(prompt, agent_type)
+        elif any(keyword in agent_type_lower for keyword in ["security", "sec", "compliance", "vulnerability"]):
+            return self._generate_realistic_security_analysis_response(prompt, agent_type)
+        else:
+            # Default to AWS API response (safer than cost analysis)
+            return self._generate_realistic_aws_api_response(prompt, agent_type)
+
+    def _generate_realistic_cost_analysis_response(self, prompt: str, agent_type: str) -> str:
+        """Generate realistic cost analysis response based on prompt"""
+        
+        prompt_lower = prompt.lower()
+        
+        if any(word in prompt_lower for word in ["cost", "billing", "expense", "budget", "savings", "optimization"]):
+            return """# AWS Cost Optimization Analysis
+
+## Executive Summary
+Your AWS environment shows **significant cost optimization opportunities** with potential savings of up to 35%. Key findings include:
+
+- **Monthly Spend**: $2,847.32 (12.3% increase from last month)
+- **Optimization Potential**: $997.56/month savings identified
+- **Top Cost Driver**: EC2 instances (64% of total spend)
+- **Immediate Actions**: 8 underutilized resources found
+
+## Cost Breakdown Analysis
+
+### Current Spending (Last 30 Days)
+1. **Amazon EC2**: $1,823.45 (64%)
+   - Compute instances: $1,456.78
+   - EBS storage: $366.67
+2. **Amazon S3**: $412.67 (14%)
+   - Standard storage: $298.45
+   - Data transfer: $114.22
+3. **Amazon RDS**: $298.33 (10%)
+   - Database instances: $245.67
+   - Backup storage: $52.66
+4. **Data Transfer**: $187.22 (7%)
+5. **Other Services**: $125.65 (5%)
+
+## Optimization Recommendations
+
+### 1. EC2 Rightsizing (High Impact)
+- **Potential Savings**: $547.23/month (30% reduction)
+- **Action Required**: Resize 8 overprovisioned instances
+- **Instances to Review**:
+  - i-0abc123: t3.large → t3.medium (Save $89.76/month)
+  - i-0def456: m5.xlarge → m5.large (Save $156.48/month)
+  - i-0ghi789: c5.2xlarge → c5.xlarge (Save $301.99/month)
+
+### 2. Reserved Instance Opportunities (Medium Impact)
+- **Potential Savings**: $312.45/month (17% reduction)
+- **Recommendation**: Purchase 1-year RIs for production workloads
+- **Eligible Instances**: 12 instances running >80% utilization
+
+### 3. S3 Storage Optimization (Medium Impact)
+- **Potential Savings**: $89.67/month (22% reduction)
+- **Actions**:
+  - Implement lifecycle policies for 847GB of infrequently accessed data
+  - Move 234GB to Glacier for long-term archival
+  - Enable S3 Intelligent Tiering for 1.2TB of data
+
+### 4. Unused Resources Cleanup (Low Impact)
+- **Potential Savings**: $48.21/month
+- **Resources to Remove**:
+  - 3 unattached EBS volumes ($23.45/month)
+  - 2 unused Elastic IPs ($14.60/month)
+  - 1 idle NAT Gateway ($10.16/month)
+
+## Implementation Timeline
+
+### Week 1: Quick Wins
+- Remove unused resources
+- Implement S3 lifecycle policies
+- **Expected Savings**: $137.88/month
+
+### Week 2-3: Rightsizing
+- Resize overprovisioned EC2 instances
+- Monitor performance impact
+- **Expected Savings**: $547.23/month
+
+### Week 4: Reserved Instances
+- Purchase RIs for stable workloads
+- **Expected Savings**: $312.45/month
+
+## Total Projected Savings
+- **Monthly**: $997.56 (35% reduction)
+- **Annual**: $11,970.72
+- **ROI**: Implementation effort ~16 hours, payback in <1 month"""
+
+        else:
+            return f"""# Cost Analysis Complete
+
+The {agent_type} agent has processed your request: "{prompt}"
+
+## Analysis Summary
+- **Agent Type**: {agent_type}
+- **Processing Status**: Successful
+- **Analysis Scope**: AWS cost optimization and billing analysis
+- **Tools Executed**: Multiple cost analysis and optimization tools
+
+## Key Findings
+Your AWS environment has been analyzed for cost optimization opportunities. Detailed recommendations and potential savings have been identified across multiple service categories.
+
+## Next Steps
+Please review the detailed cost breakdown and optimization recommendations provided above."""
+
+    def _generate_realistic_aws_api_response(self, prompt: str, agent_type: str) -> str:
+        """Generate realistic AWS API response based on prompt"""
+        
+        prompt_lower = prompt.lower()
+        
+        if any(word in prompt_lower for word in ["security", "sec4", "network", "vpc", "security group"]):
+            return """# AWS Security Groups Network Access Control Assessment
+
+## Analysis Complete
+I've analyzed your AWS environment for SEC4_1: "Implement Security Groups for network access control" compliance.
+
+## Discovery Results
+Using AWS CLI commands to gather baseline information:
+
+### VPC Inventory
+```bash
+aws ec2 describe-vpcs --query 'Vpcs[*].{VpcId:VpcId,CidrBlock:CidrBlock,State:State}'
+```
+
+**Found 3 VPCs:**
+- vpc-0abc123def456789a: 10.0.0.0/16 (default VPC)
+- vpc-0def456ghi789abc1: 172.31.0.0/16 (production)
+- vpc-0ghi789abc123def4: 192.168.0.0/16 (development)
+
+### Security Group Analysis
+```bash
+aws ec2 describe-security-groups --query 'SecurityGroups[*].{GroupId:GroupId,GroupName:GroupName,VpcId:VpcId,InboundRules:IpPermissions[*],OutboundRules:IpPermissionsEgress[*]}'
+```
+
+**Security Groups Found: 12**
+
+## Compliance Assessment
+
+### ✅ PASS Criteria Met:
+1. **Security Groups Exist**: All VPC resources have associated security groups
+2. **Specific CIDR Blocks**: Production SGs use specific on-premises ranges (10.1.0.0/24, 10.2.0.0/24)
+3. **Port Restrictions**: Rules specify exact ports (443, 22, 3306) rather than broad ranges
+4. **Protocol Specificity**: TCP/UDP protocols explicitly defined
+
+### ⚠️ WARNINGS Found:
+1. **sg-0abc123**: Development SG allows 0.0.0.0/0 on port 80 (HTTP)
+2. **sg-0def456**: Outbound rules allow all traffic (0.0.0.0/0:0-65535)
+
+### ❌ ISSUES Identified:
+1. **sg-0ghi789**: Inbound rule allows 0.0.0.0/0 on port 22 (SSH) - HIGH RISK
+2. **sg-0jkl012**: Missing restrictions for on-premises network access
+
+## Remediation Commands
+
+### Fix Overly Permissive SSH Access:
+```bash
+# Remove dangerous SSH rule
+aws ec2 revoke-security-group-ingress --group-id sg-0ghi789 --protocol tcp --port 22 --cidr 0.0.0.0/0
+
+# Add restrictive SSH rule for on-premises only
+aws ec2 authorize-security-group-ingress --group-id sg-0ghi789 --protocol tcp --port 22 --cidr 10.1.0.0/24
+```
+
+### Restrict Outbound Traffic:
+```bash
+# Remove overly permissive outbound rule
+aws ec2 revoke-security-group-egress --group-id sg-0def456 --protocol tcp --port 0-65535 --cidr 0.0.0.0/0
+
+# Add specific outbound rules
+aws ec2 authorize-security-group-egress --group-id sg-0def456 --protocol tcp --port 443 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-egress --group-id sg-0def456 --protocol tcp --port 80 --cidr 0.0.0.0/0
+```
+
+## Compliance Score: 75/100
+
+**Priority Actions:**
+1. **HIGH**: Fix SSH access from anywhere (sg-0ghi789)
+2. **MEDIUM**: Restrict outbound traffic rules
+3. **LOW**: Review development environment access patterns
+
+## Next Steps
+1. Execute the remediation commands above
+2. Implement security group monitoring with CloudWatch
+3. Regular compliance audits using AWS Config rules"""
+
+        elif any(word in prompt_lower for word in ["list", "describe", "show", "get", "instances", "buckets", "resources"]):
+            return f"""# AWS Resource Query Results
+
+## Command Executed
+Based on your request: "{prompt}"
+
+I've executed the appropriate AWS CLI commands to gather the requested information.
+
+### AWS CLI Commands Used:
+- `suggest_aws_commands`: Generated command suggestions
+- `call_aws`: Executed specific AWS CLI operations  
+- `validate_credential_configuration`: Verified access permissions
+
+## Sample Results
+
+### EC2 Instances
+```json
+{{
+  "Instances": [
+    {{
+      "InstanceId": "i-0abc123def456789a",
+      "InstanceType": "t3.medium", 
+      "State": "running",
+      "LaunchTime": "2024-01-15T10:30:00Z",
+      "Tags": [
+        {{"Key": "Name", "Value": "WebServer-Prod"}},
+        {{"Key": "Environment", "Value": "Production"}}
+      ]
+    }},
+    {{
+      "InstanceId": "i-0def456ghi789abc1",
+      "InstanceType": "t3.small",
+      "State": "stopped", 
+      "LaunchTime": "2024-01-10T14:20:00Z",
+      "Tags": [
+        {{"Key": "Name", "Value": "DevServer"}},
+        {{"Key": "Environment", "Value": "Development"}}
+      ]
+    }}
+  ]
+}}
+```
+
+### Summary
+- **Total Resources Found**: 15
+- **Active Resources**: 12
+- **Regions Checked**: us-east-1, us-west-2
+- **Account ID**: 123456789012
+
+## Available Actions
+I can help you with additional AWS operations:
+- List resources across services (EC2, S3, RDS, Lambda, etc.)
+- Execute specific AWS CLI commands
+- Validate configurations and permissions
+- Suggest optimal commands for your use cases
+
+Please let me know what specific AWS operation you'd like to perform next."""
+
+        else:
+            return f"""# AWS API Operations Complete
+
+## Request Processed
+The {agent_type} agent has successfully processed your request: "{prompt}"
+
+## Tools Available
+- **suggest_aws_commands**: Get AI-powered AWS CLI command suggestions
+- **call_aws**: Execute AWS CLI commands with validation
+- **validate_credential_configuration**: Test AWS credentials and access
+
+## Capabilities
+✅ **AWS CLI Operations**: Execute any AWS CLI command across 500+ services
+✅ **Cross-Account Access**: Support for AssumeRole operations  
+✅ **Command Validation**: Prevent errors with built-in validation
+✅ **Multi-Region Support**: Operations across all AWS regions
+✅ **File Operations**: Handle file-based AWS operations
+
+## Next Steps
+I'm ready to help with your AWS operations. You can:
+1. Ask me to list specific AWS resources
+2. Request AWS CLI command suggestions
+3. Execute specific AWS operations
+4. Validate your AWS credentials and permissions
+
+What AWS operation would you like to perform?"""
 
     def _is_cache_valid(self) -> bool:
         """Check if discovery cache is still valid"""
@@ -714,8 +1138,137 @@ The {agent_type} agent has processed your request: "{prompt}"
 ## Next Steps
 Please review the detailed findings and recommendations provided above."""
 
-    def _generate_realistic_tool_results(self, prompt: str, tools_used: List[str]) -> Dict[str, Any]:
-        """Generate realistic tool execution results"""
+    def _generate_agent_specific_tool_results(self, prompt: str, tools_used: List[str], agent_type: str) -> Dict[str, Any]:
+        """Generate agent-specific tool execution results"""
+        
+        agent_type_lower = agent_type.lower()
+        
+        if any(keyword in agent_type_lower for keyword in ["cost", "billing", "expense", "optimization"]):
+            return self._generate_cost_tool_results(prompt, tools_used)
+        elif any(keyword in agent_type_lower for keyword in ["security", "sec", "compliance", "vulnerability"]):
+            return self._generate_security_tool_results(prompt, tools_used)
+        else:
+            # Default to cost tools
+            return self._generate_cost_tool_results(prompt, tools_used)
+
+    def _generate_cost_tool_results(self, prompt: str, tools_used: List[str]) -> Dict[str, Any]:
+        """Generate realistic cost tool execution results"""
+        
+        results = {}
+        
+        for tool_name in tools_used:
+            if tool_name == "GetCostAnalysis":
+                results[tool_name] = {
+                    "time_range": "Last 30 days",
+                    "total_cost": "$2,847.32",
+                    "cost_breakdown": [
+                        {"service": "EC2", "cost": "$1,823.45", "percentage": 64},
+                        {"service": "S3", "cost": "$412.67", "percentage": 14},
+                        {"service": "RDS", "cost": "$298.33", "percentage": 10},
+                        {"service": "Data Transfer", "cost": "$187.22", "percentage": 7},
+                        {"service": "Other", "cost": "$125.65", "percentage": 5}
+                    ],
+                    "month_over_month_change": "+12.3%",
+                    "cost_trend": "increasing",
+                    "top_cost_driver": "EC2 instances"
+                }
+            
+            elif tool_name == "GetRightsizingRecommendations":
+                results[tool_name] = {
+                    "total_instances_analyzed": 23,
+                    "rightsizing_opportunities": 8,
+                    "potential_monthly_savings": "$547.23",
+                    "recommendations": [
+                        {
+                            "instance_id": "i-0abc123def456789",
+                            "current_type": "t3.large",
+                            "recommended_type": "t3.medium",
+                            "monthly_savings": "$89.76",
+                            "cpu_utilization": "15%",
+                            "memory_utilization": "32%"
+                        },
+                        {
+                            "instance_id": "i-0def456ghi789abc",
+                            "current_type": "m5.xlarge",
+                            "recommended_type": "m5.large",
+                            "monthly_savings": "$156.48",
+                            "cpu_utilization": "22%",
+                            "memory_utilization": "41%"
+                        },
+                        {
+                            "instance_id": "i-0ghi789abc123def",
+                            "current_type": "c5.2xlarge",
+                            "recommended_type": "c5.xlarge",
+                            "monthly_savings": "$301.99",
+                            "cpu_utilization": "28%",
+                            "memory_utilization": "35%"
+                        }
+                    ]
+                }
+            
+            elif tool_name == "GetReservedInstanceRecommendations":
+                results[tool_name] = {
+                    "analysis_period": "Last 30 days",
+                    "eligible_instances": 12,
+                    "potential_annual_savings": "$3,749.40",
+                    "potential_monthly_savings": "$312.45",
+                    "recommendations": [
+                        {
+                            "instance_type": "t3.medium",
+                            "quantity": 4,
+                            "term": "1 year",
+                            "payment_option": "Partial Upfront",
+                            "annual_savings": "$1,456.80",
+                            "upfront_cost": "$892.00"
+                        },
+                        {
+                            "instance_type": "m5.large",
+                            "quantity": 3,
+                            "term": "1 year",
+                            "payment_option": "Partial Upfront",
+                            "annual_savings": "$1,234.20",
+                            "upfront_cost": "$1,167.00"
+                        },
+                        {
+                            "instance_type": "c5.xlarge",
+                            "quantity": 2,
+                            "term": "1 year",
+                            "payment_option": "Partial Upfront",
+                            "annual_savings": "$1,058.40",
+                            "upfront_cost": "$1,456.00"
+                        }
+                    ]
+                }
+            
+            elif tool_name == "GetCostAnomalies":
+                results[tool_name] = {
+                    "analysis_period": "Last 7 days",
+                    "anomalies_detected": 2,
+                    "total_anomalous_spend": "$234.56",
+                    "anomalies": [
+                        {
+                            "date": "2025-10-27",
+                            "service": "EC2",
+                            "anomalous_spend": "$156.78",
+                            "expected_spend": "$89.45",
+                            "variance": "+75.3%",
+                            "root_cause": "Unexpected instance launch in us-west-2"
+                        },
+                        {
+                            "date": "2025-10-28",
+                            "service": "S3",
+                            "anomalous_spend": "$77.78",
+                            "expected_spend": "$23.45",
+                            "variance": "+231.7%",
+                            "root_cause": "Large data transfer to external destination"
+                        }
+                    ]
+                }
+        
+        return results
+
+    def _generate_security_tool_results(self, prompt: str, tools_used: List[str]) -> Dict[str, Any]:
+        """Generate realistic security tool execution results"""
         
         results = {}
         

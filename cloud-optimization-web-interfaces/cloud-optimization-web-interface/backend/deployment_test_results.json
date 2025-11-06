@@ -1,0 +1,61 @@
+{
+  "success": false,
+  "results": {
+    "docker_build_tests": {
+      "bedrockagent_build": {
+        "dockerfile_exists": true,
+        "build_script_exists": true,
+        "build_script_executable": true,
+        "dockerfile_valid": true,
+        "success": true
+      },
+      "agentcore_build": {
+        "dockerfile_exists": true,
+        "build_script_exists": true,
+        "build_script_executable": true,
+        "dockerfile_valid": true,
+        "success": true
+      },
+      "success": true
+    },
+    "deployment_tests": {
+      "docker_compose_exists": true,
+      "docker_compose_valid": true,
+      "deployment_script_exists": true,
+      "deployment_script_executable": true,
+      "profiles_configured": true,
+      "success": true
+    },
+    "scaling_tests": {
+      "independent_scaling": true,
+      "profile_isolation": false,
+      "port_configuration": true,
+      "resource_limits": false,
+      "success": false
+    },
+    "health_monitoring_tests": {
+      "health_check_script_exists": true,
+      "health_check_executable": true,
+      "validation_script_exists": true,
+      "validation_script_executable": true,
+      "monitoring_config_exists": true,
+      "success": true
+    },
+    "automation_tests": {
+      "deploy_script_exists": true,
+      "deploy_script_executable": true,
+      "rollback_script_exists": true,
+      "rollback_script_executable": true,
+      "build_scripts_exist": true,
+      "build_scripts_executable": true,
+      "script_help_available": true,
+      "success": true
+    },
+    "deployment_validation_tests": {
+      "validation_script_functional": true,
+      "health_check_functional": true,
+      "rollback_script_functional": true,
+      "success": true
+    }
+  }
+}

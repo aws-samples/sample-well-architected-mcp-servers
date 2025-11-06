@@ -4,6 +4,8 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
+      - echo Logging in to Amazon ECR Public...
+      - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_HASH:=latest}
       - echo "Building image with tag $IMAGE_TAG"
@@ -12,7 +14,7 @@ phases:
       - echo Build started on `date`
       - cd cloud-optimization-web-interfaces/cloud-optimization-web-interface
       - echo "Building Docker image..."
-      - docker build -t $ECR_REPOSITORY_URI:latest -t $ECR_REPOSITORY_URI:$IMAGE_TAG -f Dockerfile .
+      - docker build --platform linux/amd64 -t $ECR_REPOSITORY_URI:latest -t $ECR_REPOSITORY_URI:latest -f Dockerfile .
       - echo "Testing container startup..."
       - docker run --rm --name test-container $ECR_REPOSITORY_URI:latest python -c "import fastapi; print('FastAPI import successful')"
   post_build:
@@ -20,9 +22,12 @@ phases:
       - echo Build completed on `date`
       - echo "Pushing images to ECR..."
       - docker push $ECR_REPOSITORY_URI:latest
-      - docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
+      - echo "Tagging and pushing to public ECR..."
+      - docker tag $ECR_REPOSITORY_URI:latest public.ecr.aws/s3l2z7b0/coav2-backend:latest
+      - docker push public.ecr.aws/s3l2z7b0/coav2-backend:latest
       - echo "Creating imagedefinitions.json..."
-      - printf '[{"name":"backend","imageUri":"%s"}]' $ECR_REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - cd $CODEBUILD_SRC_DIR
+      - printf '[{"name":"backend","imageUri":"public.ecr.aws/s3l2z7b0/coav2-backend:latest"}]' > imagedefinitions.json
       - cat imagedefinitions.json
 artifacts:
   files:

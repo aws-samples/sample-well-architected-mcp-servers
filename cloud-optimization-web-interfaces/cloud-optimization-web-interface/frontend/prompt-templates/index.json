@@ -1,0 +1,162 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-11-06T03:09:16.291Z",
+  "categories": {
+        "Cost - ECS Rightsizing": {
+      "displayName": "Cost - ECS Rightsizing",
+      "description": "Cost - ECS Rightsizing analysis and assessment templates",
+      "templates": [
+        {
+          "name": "EC2 Instance Rightsizing Analysis",
+          "displayName": "Ec2 Instance Rightsizing Analysis",
+          "filename": "EC2 Instance Rightsizing Analysis.md",
+          "path": "Cost - ECS Rightsizing",
+          "description": "Analyze my EC2 instances for rightsizing opportunities and provide cost optimization recommendati...",
+          "lastModified": "2025-11-05T07:14:30.007Z"
+        },
+        {
+          "name": "EC2 Rightsizing - Quick Wins",
+          "displayName": "Ec2 Rightsizing Quick Wins",
+          "filename": "EC2 Rightsizing - Quick Wins.md",
+          "path": "Cost - ECS Rightsizing",
+          "description": "Identify EC2 instances that can be immediately resized for cost savings.",
+          "lastModified": "2025-11-05T12:43:09.038Z"
+        },
+        {
+          "name": "EC2 Rightsizing - Top Opportunities",
+          "displayName": "Ec2 Rightsizing Top Opportunities",
+          "filename": "EC2 Rightsizing - Top Opportunities.md",
+          "path": "Cost - ECS Rightsizing",
+          "description": "Show me the top 3 EC2 instances with the highest cost savings potential from Compute Optimizer.",
+          "lastModified": "2025-11-05T12:42:48.241Z"
+        },
+        {
+          "name": "EC2 Rightsizing - Underutilized Instances",
+          "displayName": "Ec2 Rightsizing Underutilized Instances",
+          "filename": "EC2 Rightsizing - Underutilized Instances.md",
+          "path": "Cost - ECS Rightsizing",
+          "description": "Find EC2 instances with CPU utilization below 40% over the last 30 days.",
+          "lastModified": "2025-11-05T12:42:57.583Z"
+        }
+      ],
+      "subcategories": {}
+    },
+    "Cost - Auto Scaling Groups": {
+      "displayName": "Cost - Auto Scaling Groups",
+      "description": "Cost - Auto Scaling Groups analysis and assessment templates",
+      "templates": [
+        {
+          "name": "Auto Scaling Group Optimization",
+          "displayName": "Auto Scaling Group Optimization",
+          "filename": "Auto Scaling Group Optimization.md",
+          "path": "Cost - Auto Scaling Groups",
+          "description": "Analyze my Auto Scaling Groups for cost optimization opportunities and provide specific recommend...",
+          "lastModified": "2025-11-05T07:14:44.197Z"
+        },
+        {
+          "name": "Auto Scaling Groups - Cost Analysis",
+          "displayName": "Auto Scaling Groups Cost Analysis",
+          "filename": "Auto Scaling Groups - Cost Analysis.md",
+          "path": "Cost - Auto Scaling Groups",
+          "description": "Analyze Auto Scaling Group costs and scaling patterns.",
+          "lastModified": "2025-11-05T13:55:18.120Z"
+        },
+        {
+          "name": "Auto Scaling Groups - Rightsizing Recommendations",
+          "displayName": "Auto Scaling Groups Rightsizing Recommendations",
+          "filename": "Auto Scaling Groups - Rightsizing Recommendations.md",
+          "path": "Cost - Auto Scaling Groups",
+          "description": "Show me Auto Scaling Group rightsizing opportunities from Compute Optimizer.",
+          "lastModified": "2025-11-05T13:54:20.795Z"
+        },
+        {
+          "name": "Auto Scaling Groups - Spot Instance Opportunities",
+          "displayName": "Auto Scaling Groups Spot Instance Opportunities",
+          "filename": "Auto Scaling Groups - Spot Instance Opportunities.md",
+          "path": "Cost - Auto Scaling Groups",
+          "description": "Identify Spot instance integration opportunities for Auto Scaling Groups.",
+          "lastModified": "2025-11-05T13:55:32.327Z"
+        }
+      ],
+      "subcategories": {}
+    },
+    "Cost - Savings Plans": {
+      "displayName": "Cost - Savings Plans",
+      "description": "Cost - Savings Plans analysis and assessment templates",
+      "templates": [
+        {
+          "name": "Reserved Instances - Purchase Recommendations",
+          "displayName": "Reserved Instances Purchase Recommendations",
+          "filename": "Reserved Instances - Purchase Recommendations.md",
+          "path": "Cost - Savings Plans",
+          "description": "Show me my top EC2 Reserved Instance opportunity.",
+          "lastModified": "2025-11-05T12:57:28.670Z"
+        },
+        {
+          "name": "Savings Plans - Compute Recommendations",
+          "displayName": "Savings Plans Compute Recommendations",
+          "filename": "Savings Plans - Compute Recommendations.md",
+          "path": "Cost - Savings Plans",
+          "description": "Show me my top Compute Savings Plans recommendation.",
+          "lastModified": "2025-11-05T12:56:45.841Z"
+        },
+        {
+          "name": "Savings Plans - Current Utilization",
+          "displayName": "Savings Plans Current Utilization",
+          "filename": "Savings Plans - Current Utilization.md",
+          "path": "Cost - Savings Plans",
+          "description": "Check my current Savings Plans utilization rate.",
+          "lastModified": "2025-11-05T12:58:13.480Z"
+        },
+        {
+          "name": "Scan for saving plans options",
+          "displayName": "Scan For Saving Plans Options",
+          "filename": "Scan for saving plans options.md",
+          "path": "Cost - Savings Plans",
+          "description": "Analyze my AWS usage patterns and provide specific Savings Plans and Reserved Instance recommenda...",
+          "lastModified": "2025-11-05T07:15:30.941Z"
+        }
+      ],
+      "subcategories": {}
+    },
+    "Cost - Misc.": {
+      "displayName": "Cost - Misc.",
+      "description": "Cost - Misc. analysis and assessment templates",
+      "templates": [
+        {
+          "name": "Ebs Volume Optimization",
+          "displayName": "Ebs Volume Optimization",
+          "filename": "Ebs Volume Optimization.md",
+          "path": "Cost - Misc.",
+          "description": "Analyze my EBS volumes for cost and performance optimization opportunities.",
+          "lastModified": "2025-11-05T07:16:07.337Z"
+        },
+        {
+          "name": "Insights from Compute Optimizer",
+          "displayName": "Insights From Compute Optimizer",
+          "filename": "Insights from Compute Optimizer.md",
+          "path": "Cost - Misc.",
+          "description": "Get comprehensive AWS Compute Optimizer recommendations for all supported services.",
+          "lastModified": "2025-11-05T07:16:34.372Z"
+        },
+        {
+          "name": "Lambda Function Optimization",
+          "displayName": "Lambda Function Optimization",
+          "filename": "Lambda Function Optimization.md",
+          "path": "Cost - Misc.",
+          "description": "Analyze my Lambda functions for memory allocation and cost optimization opportunities.",
+          "lastModified": "2025-11-05T07:16:53.007Z"
+        },
+        {
+          "name": "Performance Metrics Overview",
+          "displayName": "Performance Metrics Overview",
+          "filename": "Performance Metrics Overview.md",
+          "path": "Cost - Misc.",
+          "description": "Get comprehensive performance and cost optimization recommendations across all AWS compute resour...",
+          "lastModified": "2025-11-05T07:15:51.423Z"
+        }
+      ],
+      "subcategories": {}
+    }
+  }
+}

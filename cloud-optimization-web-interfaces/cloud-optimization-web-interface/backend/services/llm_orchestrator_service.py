@@ -537,23 +537,10 @@ You should be proactive in suggesting related analyses that might be valuable to
         """Process message by routing to the selected Bedrock agent"""
         
         try:
-            # Import the enhanced bedrock agent service
-            from services.enhanced_bedrock_agent_service import EnhancedBedrockAgentService
+            # NOTE: Enhanced Bedrock Agent Service has been deprecated
+            # This method now falls back to direct MCP processing
+            logger.warning("Enhanced Bedrock Agent Service is deprecated, falling back to direct MCP processing")
             
-            # Create enhanced bedrock agent service instance
-            bedrock_agent_service = EnhancedBedrockAgentService()
-            
-            # Process message using the enhanced bedrock agent service
-            logger.info("Routing message to Enhanced Bedrock Agent Service")
-            response = await bedrock_agent_service.process_message(
-                message=message,
-                session=session
-            )
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Failed to process with Bedrock agent: {e}")
             # Fallback to direct MCP processing
             logger.info("Falling back to direct MCP processing")
             
